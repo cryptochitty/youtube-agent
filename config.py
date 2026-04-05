@@ -31,7 +31,7 @@ HF_API_TOKEN   = os.getenv("HF_API_TOKEN", "")
 # ── Video ─────────────────────────────────────────────────────────────────────
 VIDEO_W   = int(os.getenv("VIDEO_WIDTH",  "640"))
 VIDEO_H   = int(os.getenv("VIDEO_HEIGHT", "360"))
-VIDEO_FPS = int(os.getenv("VIDEO_FPS",    "8"))
+VIDEO_FPS = int(os.getenv("VIDEO_FPS",    "6"))
 
 # ── Voice map (language → edge-tts voice) ─────────────────────────────────────
 VOICE_MAP = {

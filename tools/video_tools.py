@@ -338,18 +338,18 @@ def draw_progress_bar(draw: ImageDraw.Draw, frame_n: int,
     draw.rectangle([bw, 0, W, 4],  fill=tuple(int(c*0.18) for c in accent))
 
 
-# ── Scene renderer ────────────────────────────────────────────────────────────
+# ── Scene renderer (generator — one frame at a time, minimal peak RAM) ────────
 def render_scene_frames(
     image_path: str, subtitle_text: str, duration: float,
     accent_color: tuple, frame_n_start: int, total_frames: int,
     zoom_in: bool = True, anim_data: dict = None,
-) -> List[np.ndarray]:
+):
+    """Yields frames one by one — never accumulates the full scene in memory."""
     base = Image.open(image_path).convert("RGB").resize((W, H), Image.LANCZOS)
     base_arr  = np.array(base)
     n_frames  = max(1, int(duration * FPS))
     anim_data = anim_data or {"type": "none"}
     atype     = anim_data.get("type", "none")
-    frames    = []
 
     FADE = max(1, int(FPS * 0.3))
 
@@ -395,9 +395,7 @@ def render_scene_frames(
         pimg  = Image.fromarray(frame)
         pdraw = ImageDraw.Draw(pimg)
         draw_progress_bar(pdraw, frame_n_start + fi, total_frames, accent_color)
-        frames.append(np.array(pimg))
-
-    return frames
+        yield np.array(pimg)
 
 
 # ── Assemble final video ──────────────────────────────────────────────────────
@@ -416,7 +414,8 @@ def assemble_video(scenes: list, out_path: str, accent_colors: list) -> str:
     frame_cursor = 0
     for idx, scene in enumerate(scenes):
         acc = tuple(int(c) for c in accent_colors[idx % len(accent_colors)])
-        frames = render_scene_frames(
+        scene_frames = 0
+        for f in render_scene_frames(
             image_path    = scene["image_path"],
             subtitle_text = scene.get("subtitle", ""),
             duration      = scene["duration"],
@@ -425,10 +424,10 @@ def assemble_video(scenes: list, out_path: str, accent_colors: list) -> str:
             total_frames  = total_frames,
             zoom_in       = (idx % 2 == 0),
             anim_data     = scene.get("anim_data", {"type": "none"}),
-        )
-        for f in frames:
+        ):
             writer.append_data(f)
-        frame_cursor += len(frames)
+            scene_frames += 1
+        frame_cursor += scene_frames
         print(f"[Editor] Scene {idx+1}/{len(scenes)} — {int((idx+1)/len(scenes)*100)}%")
 
     writer.close()
