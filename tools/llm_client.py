@@ -18,9 +18,15 @@ def invoke_llm(prompt: str, system: str = "", _attempt: int = 0) -> str:
             return _openai(prompt, system)
         return _stub(prompt)
     except requests.exceptions.HTTPError as e:
-        if e.response is not None and e.response.status_code == 429 and _attempt < 4:
-            wait = 15 * (2 ** _attempt)  # 15s, 30s, 60s, 120s
-            print(f"[LLM] 429 rate limit — waiting {wait}s (attempt {_attempt+1}/4)...")
+        if e.response is not None and e.response.status_code == 429 and _attempt < 5:
+            # Respect retry-after header if present, else use exponential backoff
+            retry_after = e.response.headers.get("retry-after") or e.response.headers.get("x-ratelimit-reset-requests")
+            try:
+                wait = max(int(float(retry_after)), 5) if retry_after else 30 * (2 ** _attempt)
+            except (ValueError, TypeError):
+                wait = 30 * (2 ** _attempt)
+            wait = min(wait, 300)  # cap at 5 minutes
+            print(f"[LLM] 429 rate limit — waiting {wait}s (attempt {_attempt+1}/5)...")
             time.sleep(wait)
             return invoke_llm(prompt, system, _attempt + 1)
         raise
@@ -50,7 +56,16 @@ def invoke_json(prompt: str, system: str = "", retries: int = 2) -> dict:
 
 
 # ── Groq (free tier — llama3, mixtral) ───────────────────────────────────────
+_last_groq_call = 0.0
+
 def _groq(prompt: str, system: str) -> str:
+    global _last_groq_call
+    # Throttle: minimum 3s between Groq calls to stay under rate limits
+    elapsed = time.time() - _last_groq_call
+    if elapsed < 3:
+        time.sleep(3 - elapsed)
+    _last_groq_call = time.time()
+
     messages = []
     if system:
         messages.append({"role": "system", "content": system})
