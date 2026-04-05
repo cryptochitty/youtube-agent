@@ -1,67 +1,110 @@
-"""Multi-provider LLM client — Groq → Ollama → fallback."""
-import json, re
+"""
+Lightweight LLM client — direct HTTP calls, no LangChain/LangGraph.
+Groq (free) → Ollama (local) → fallback stub.
+Saves ~300MB RAM vs langchain stack.
+"""
+import json, re, requests
 from config import LLM_PROVIDER, GROQ_API_KEY, GROQ_MODEL, OLLAMA_URL, OLLAMA_MODEL
 
 
-def get_llm():
-    """Return a LangChain LLM object based on configured provider."""
-    if LLM_PROVIDER == "groq" and GROQ_API_KEY:
-        try:
-            from langchain_groq import ChatGroq
-            return ChatGroq(api_key=GROQ_API_KEY, model_name=GROQ_MODEL,
-                            temperature=0.7, max_tokens=4096)
-        except Exception as e:
-            print(f"[LLM] Groq failed: {e}, falling back to Ollama")
-
-    if LLM_PROVIDER in ("ollama", "groq"):
-        try:
-            from langchain_ollama import ChatOllama
-            return ChatOllama(base_url=OLLAMA_URL, model=OLLAMA_MODEL,
-                              temperature=0.7)
-        except Exception as e:
-            print(f"[LLM] Ollama failed: {e}")
-
-    if LLM_PROVIDER == "openai":
-        from config import OPENAI_KEY, OPENAI_MODEL
-        from langchain_openai import ChatOpenAI
-        return ChatOpenAI(api_key=OPENAI_KEY, model=OPENAI_MODEL, temperature=0.7)
-
-    raise RuntimeError(
-        "No LLM available. Set GROQ_API_KEY in .env (free at console.groq.com) "
-        "or run Ollama locally."
-    )
-
-
 def invoke_llm(prompt: str, system: str = "") -> str:
-    """Single call — returns string response."""
-    from langchain_core.messages import HumanMessage, SystemMessage
-    llm = get_llm()
-    messages = []
-    if system:
-        messages.append(SystemMessage(content=system))
-    messages.append(HumanMessage(content=prompt))
-    response = llm.invoke(messages)
-    return response.content.strip()
+    """Call LLM and return text response."""
+    if LLM_PROVIDER == "groq" and GROQ_API_KEY:
+        return _groq(prompt, system)
+    if LLM_PROVIDER in ("ollama", "groq"):
+        return _ollama(prompt, system)
+    if LLM_PROVIDER == "openai":
+        return _openai(prompt, system)
+    return _stub(prompt)
 
 
 def invoke_json(prompt: str, system: str = "", retries: int = 2) -> dict:
-    """Call LLM and parse JSON response — retries on parse failure."""
+    """Call LLM, parse and return JSON dict."""
     for attempt in range(retries + 1):
-        raw = invoke_llm(prompt + "\n\nRespond ONLY with valid JSON, no markdown fences.",
-                         system)
-        # Strip markdown fences if present
-        raw = re.sub(r"```(?:json)?\s*", "", raw).strip().rstrip("```").strip()
+        raw = invoke_llm(
+            prompt + "\n\nRespond ONLY with valid JSON. No markdown, no explanation.",
+            system
+        )
+        raw = re.sub(r"```(?:json)?\s*", "", raw).strip().rstrip("`").strip()
         try:
             return json.loads(raw)
         except json.JSONDecodeError:
-            # Try to extract JSON object/array
-            m = re.search(r'\{[\s\S]+\}|\[[\s\S]+\]', raw)
+            m = re.search(r'\{[\s\S]+\}', raw)
             if m:
                 try:
                     return json.loads(m.group())
                 except Exception:
                     pass
-            if attempt == retries:
-                print(f"[LLM] JSON parse failed after {retries+1} attempts. Raw:\n{raw[:300]}")
-                return {}
+        if attempt == retries:
+            print(f"[LLM] JSON parse failed. Raw: {raw[:200]}")
+            return {}
     return {}
+
+
+# ── Groq (free tier — llama3, mixtral) ───────────────────────────────────────
+def _groq(prompt: str, system: str) -> str:
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+
+    r = requests.post(
+        "https://api.groq.com/openai/v1/chat/completions",
+        headers={"Authorization": f"Bearer {GROQ_API_KEY}",
+                 "Content-Type": "application/json"},
+        json={"model": GROQ_MODEL, "messages": messages,
+              "temperature": 0.7, "max_tokens": 4096},
+        timeout=60,
+    )
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"].strip()
+
+
+# ── Ollama (local) ────────────────────────────────────────────────────────────
+def _ollama(prompt: str, system: str) -> str:
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+
+    r = requests.post(
+        f"{OLLAMA_URL}/api/chat",
+        json={"model": OLLAMA_MODEL, "messages": messages, "stream": False},
+        timeout=120,
+    )
+    r.raise_for_status()
+    return r.json()["message"]["content"].strip()
+
+
+# ── OpenAI ────────────────────────────────────────────────────────────────────
+def _openai(prompt: str, system: str) -> str:
+    from config import OPENAI_KEY, OPENAI_MODEL
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+
+    r = requests.post(
+        "https://api.openai.com/v1/chat/completions",
+        headers={"Authorization": f"Bearer {OPENAI_KEY}",
+                 "Content-Type": "application/json"},
+        json={"model": OPENAI_MODEL, "messages": messages,
+              "temperature": 0.7, "max_tokens": 4096},
+        timeout=60,
+    )
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"].strip()
+
+
+# ── Stub fallback (no API key) ────────────────────────────────────────────────
+def _stub(prompt: str) -> str:
+    """Minimal fallback when no LLM is configured."""
+    return json.dumps({
+        "summary": "An informative overview of the topic.",
+        "key_points": ["Key insight 1", "Key insight 2", "Key insight 3"],
+        "hooks": ["Did you know this topic is changing everything?"],
+        "trending_aspects": ["Latest developments", "Future implications"],
+        "target_audience": "general audience",
+        "tone_suggestion": "educational",
+        "estimated_duration": 6,
+    })
