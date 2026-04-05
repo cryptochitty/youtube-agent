@@ -22,7 +22,7 @@ def visual_agent(state: VideoState) -> VideoState:
     for i, section in enumerate(sections):
         out_path = str(img_dir / f"scene_{i:02d}.jpg")
         try:
-            generate_scene_image(
+            result = generate_scene_image(
                 section_index   = i,
                 section_title   = section.get("title", ""),
                 section_content = section.get("content", ""),
@@ -31,7 +31,9 @@ def visual_agent(state: VideoState) -> VideoState:
                 out_path        = out_path,
                 visual_prompt   = section.get("visual_cue", ""),
             )
+            anim_data = result[1] if isinstance(result, tuple) else {"type": "none"}
             section["image_path"] = out_path
+            section["anim_data"]  = anim_data
             image_files.append(out_path)
             logs.append(f"[Visual] Scene {i+1}/{total} rendered.")
         except Exception as e:

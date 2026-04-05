@@ -40,6 +40,7 @@ def editor_agent(state: VideoState) -> VideoState:
             "duration":   max(duration, 3.0),
             "subtitle":   section.get("content", ""),
             "title":      section.get("title", ""),
+            "anim_data":  section.get("anim_data", {"type": "none"}),
         })
 
     if not assembled_scenes:
