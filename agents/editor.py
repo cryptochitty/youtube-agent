@@ -1,7 +1,7 @@
 """Video Editor Agent — assembles scenes into final MP4."""
 import os
 from graph.state import VideoState, Scene
-from tools.video_tools import assemble_video
+from tools.video_tools import assemble_video, set_video_language
 from config import OUTPUTS_DIR, get_palette
 
 
@@ -20,6 +20,7 @@ def editor_agent(state: VideoState) -> VideoState:
 
     sections = script.get("sections", [])
     palette  = get_palette(topic)
+    set_video_language(state.get("language", "English"))
 
     # Build scene list for video assembly
     assembled_scenes = []

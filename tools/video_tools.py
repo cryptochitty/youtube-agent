@@ -25,11 +25,40 @@ def _clean(text: str) -> str:
     return _EMOJI_RE.sub("", text).strip()
 
 # ── Fonts ─────────────────────────────────────────────────────────────────────
+# Script → (regular, bold) font filenames in assets/fonts/
+_SCRIPT_FONTS = {
+    "tamil":      ("NotoSansTamil-Regular.ttf",       "NotoSansTamil-Bold.ttf"),
+    "hindi":      ("NotoSansDevanagari-Regular.ttf",  "NotoSansDevanagari-Bold.ttf"),
+    "telugu":     ("NotoSansTelugu-Regular.ttf",       "NotoSansTelugu-Regular.ttf"),
+    "arabic":     ("NotoSansArabic-Regular.ttf",       "NotoSansArabic-Regular.ttf"),
+}
+_ACTIVE_SCRIPT: str = "latin"   # set via set_video_language()
+
+def set_video_language(language: str):
+    """Call before assembling a video to pick the right script font."""
+    global _ACTIVE_SCRIPT, _FC
+    lang = language.lower()
+    if "tamil" in lang:
+        _ACTIVE_SCRIPT = "tamil"
+    elif lang in ("hindi", "devanagari"):
+        _ACTIVE_SCRIPT = "hindi"
+    elif "telugu" in lang:
+        _ACTIVE_SCRIPT = "telugu"
+    elif "arabic" in lang:
+        _ACTIVE_SCRIPT = "arabic"
+    else:
+        _ACTIVE_SCRIPT = "latin"
+    _FC.clear()   # flush cached fonts so new language takes effect
+
 _FC = {}
 def _font(size, bold=False):
     k = (size, bold)
     if k not in _FC:
-        name = "NotoSans-Bold.ttf" if bold else "NotoSans-Regular.ttf"
+        if _ACTIVE_SCRIPT in _SCRIPT_FONTS:
+            reg, bld = _SCRIPT_FONTS[_ACTIVE_SCRIPT]
+            name = bld if bold else reg
+        else:
+            name = "NotoSans-Bold.ttf" if bold else "NotoSans-Regular.ttf"
         # 1. Bundled font (preferred)
         bundled = FONTS_DIR / name
         if bundled.exists():
