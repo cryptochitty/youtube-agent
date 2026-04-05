@@ -174,7 +174,7 @@ async def generate(req: GenerateRequest, bg: BackgroundTasks):
         if not req.topic.strip():
             raise HTTPException(400, "Topic cannot be empty")
         job_id = uuid.uuid4().hex[:8]
-        job_update(job_id, job_id=job_id, topic=req.topic, language=req.language,
+        job_update(job_id, topic=req.topic, language=req.language,
                    style=req.style, status="queued", logs=[], errors=[],
                    metadata={}, qa_report={}, video_path="", thumbnail_path="",
                    total_duration=0, video_ready=False, thumbnail_ready=False)
