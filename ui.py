@@ -6,7 +6,7 @@ import streamlit as st
 import json, time, os, requests
 from pathlib import Path
 
-API_BASE = os.getenv("API_URL", "http://localhost:8000")
+API_BASE = os.getenv("API_URL", "https://youtube-agent-r838.onrender.com")
 
 st.set_page_config(
     page_title="🎬 YouTube AI Agent",
