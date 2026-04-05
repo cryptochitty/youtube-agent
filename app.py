@@ -1,10 +1,12 @@
 """
 FastAPI server — YouTube AI Agent pipeline.
 Hybrid job state: in-memory (fast) + disk (survive restarts).
+Supports custom script / audio / images / video uploads.
 """
-import uuid, threading, json, traceback, os
+import uuid, threading, json, traceback, os, shutil
 from pathlib import Path
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from typing import List, Optional
+from fastapi import FastAPI, BackgroundTasks, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -59,23 +61,94 @@ def job_log(job_id: str, msg: str):
 
 
 # ── Request models ─────────────────────────────────────────────────────────────
-class GenerateRequest(BaseModel):
-    topic:    str
-    language: str = "English"
-    style:    str = "Educational"
-    audience: str = "general"
-
 class ApproveRequest(BaseModel):
     approved: bool = True
 
 
+# ── Custom asset helpers ───────────────────────────────────────────────────────
+def _parse_uploaded_script(path: str) -> dict:
+    """Parse uploaded script file (JSON or plain text) into pipeline script format."""
+    text = Path(path).read_text(encoding="utf-8", errors="replace")
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict) and "sections" in data:
+            # Ensure each section has required fields
+            for s in data["sections"]:
+                s.setdefault("title",       s.get("title", "Section"))
+                s.setdefault("content",     s.get("content", ""))
+                s.setdefault("visual_cue",  "")
+                s.setdefault("key_takeaway","")
+            return data
+    except (json.JSONDecodeError, ValueError):
+        pass
+    # Plain text → split paragraphs into sections
+    paras = [p.strip() for p in text.replace("\r\n", "\n").split("\n\n") if p.strip()]
+    if not paras:
+        paras = [p.strip() for p in text.splitlines() if p.strip()]
+    sections = []
+    for i, para in enumerate(paras[:12]):
+        lines = para.splitlines()
+        title   = lines[0][:60] if len(lines) > 1 else f"Section {i+1}"
+        content = para if len(lines) == 1 else "\n".join(lines[1:]).strip() or para
+        sections.append({"title": title, "content": content,
+                         "visual_cue": "", "key_takeaway": content[:60]})
+    return {"sections": sections, "hook": "", "intro": "", "cta": ""}
+
+
+def _apply_custom_audio(state: dict, audio_paths: list) -> dict:
+    """Map uploaded audio files to script sections."""
+    import mutagen.mp3, contextlib
+    sections = state.get("script", {}).get("sections", [])
+    audio_files = []
+    total_dur   = 0.0
+    for i, section in enumerate(sections):
+        if i < len(audio_paths):
+            ap  = audio_paths[i]
+            dur = 5.0
+            try:
+                with contextlib.suppress(Exception):
+                    from mutagen.mp3 import MP3
+                    dur = MP3(ap).info.length
+            except Exception:
+                pass
+            section["audio_path"]     = ap
+            section["audio_duration"] = dur
+            total_dur += dur
+            audio_files.append(ap)
+        else:
+            section["audio_path"]     = ""
+            section["audio_duration"] = 5.0
+            audio_files.append("")
+    state["script"]["sections"] = sections
+    state["audio_files"]        = audio_files
+    state["total_duration"]     = total_dur
+    return state
+
+
+def _apply_custom_images(state: dict, image_paths: list) -> dict:
+    """Map uploaded images to script sections."""
+    sections    = state.get("script", {}).get("sections", [])
+    image_files = []
+    for i, section in enumerate(sections):
+        if i < len(image_paths):
+            section["image_path"] = image_paths[i]
+            image_files.append(image_paths[i])
+        else:
+            section["image_path"] = ""
+            image_files.append("")
+    state["script"]["sections"] = sections
+    state["image_files"]        = image_files
+    return state
+
+
 # ── Background worker ──────────────────────────────────────────────────────────
-def _run_job(job_id: str, req: GenerateRequest):
+def _run_job(job_id: str, topic: str, language: str, style: str, audience: str,
+             custom: dict = None):
     job_update(job_id, status="running")
     job_log(job_id, "🚀 Pipeline started...")
+    custom = custom or {}
 
     try:
-        # Import inside thread to catch import errors
         from agents.research      import research_agent
         from agents.script_writer import script_writer_agent
         from agents.voice         import voice_agent
@@ -87,10 +160,9 @@ def _run_job(job_id: str, req: GenerateRequest):
         from agents.hitl          import hitl_agent
         from agents.finalizer     import finalizer_agent
 
-        # Build initial state
         state = {
-            "topic": req.topic, "language": req.language,
-            "style": req.style, "audience": req.audience,
+            "topic": topic, "language": language,
+            "style": style, "audience": audience,
             "job_id": job_id, "_mode": "api",
             "research": {}, "script": {}, "audio_files": [],
             "total_duration": 0.0, "image_files": [], "scenes": [],
@@ -99,7 +171,34 @@ def _run_job(job_id: str, req: GenerateRequest):
             "current_agent": "research", "errors": [], "logs": [], "status": "running",
         }
 
-        # Run each agent with progress updates
+        # ── Apply custom assets & determine skips ─────────────────────────────
+        skip = set()
+
+        if custom.get("script_path"):
+            job_log(job_id, "📄 Using uploaded script...")
+            state["script"]   = _parse_uploaded_script(custom["script_path"])
+            state["research"] = {"summary": f"Custom script for {topic}",
+                                 "key_points": [], "hooks": [],
+                                 "tone_suggestion": "educational", "estimated_duration": 8}
+            skip.update({"research", "script_writer"})
+
+            # Inject custom audio/images immediately (sections now known)
+            if custom.get("audio_paths"):
+                job_log(job_id, "🎵 Using uploaded audio...")
+                state = _apply_custom_audio(state, custom["audio_paths"])
+                skip.add("voice")
+            if custom.get("image_paths"):
+                job_log(job_id, "🖼️ Using uploaded images...")
+                state = _apply_custom_images(state, custom["image_paths"])
+                skip.add("visual")
+
+        if custom.get("video_path"):
+            job_log(job_id, "🎬 Using uploaded video...")
+            out_vp = str(OUTPUTS_DIR / "videos" / f"{job_id}.mp4")
+            shutil.copy(custom["video_path"], out_vp)
+            state["video_path"] = out_vp
+            skip.update({"research", "script_writer", "voice", "visual", "editor"})
+
         agents = [
             ("research",      research_agent,      "🔍 Researching topic..."),
             ("script_writer", script_writer_agent,  "✍️ Writing script..."),
@@ -113,9 +212,28 @@ def _run_job(job_id: str, req: GenerateRequest):
         ]
 
         for agent_name, agent_fn, msg in agents:
+            if agent_name in skip:
+                continue
+
+            # After script_writer runs (generated script), inject pending audio/images
+            if agent_name == "script_writer":
+                pass  # injected below after run
+
+
             job_log(job_id, msg)
             job_update(job_id, current_agent=agent_name)
             state = agent_fn(state)
+
+            # After script is generated, inject uploaded audio/images (if not yet done)
+            if agent_name == "script_writer":
+                if custom.get("audio_paths") and "voice" not in skip:
+                    job_log(job_id, "🎵 Using uploaded audio...")
+                    state = _apply_custom_audio(state, custom["audio_paths"])
+                    skip.add("voice")
+                if custom.get("image_paths") and "visual" not in skip:
+                    job_log(job_id, "🖼️ Using uploaded images...")
+                    state = _apply_custom_images(state, custom["image_paths"])
+                    skip.add("visual")
 
             # Sync logs from agent state
             new_logs = state.get("logs", [])
@@ -169,17 +287,63 @@ async def root():
 
 
 @app.post("/generate")
-async def generate(req: GenerateRequest, bg: BackgroundTasks):
+async def generate(
+    bg:           BackgroundTasks,
+    topic:        str                  = Form(...),
+    language:     str                  = Form("English"),
+    style:        str                  = Form("Educational"),
+    audience:     str                  = Form("general"),
+    script_file:  Optional[UploadFile] = File(None),
+    audio_files:  List[UploadFile]     = File(default=[]),
+    image_files:  List[UploadFile]     = File(default=[]),
+    video_file:   Optional[UploadFile] = File(None),
+):
     try:
-        if not req.topic.strip():
+        if not topic.strip():
             raise HTTPException(400, "Topic cannot be empty")
-        job_id = uuid.uuid4().hex[:8]
-        job_update(job_id, topic=req.topic, language=req.language,
-                   style=req.style, status="queued", logs=[], errors=[],
-                   metadata={}, qa_report={}, video_path="", thumbnail_path="",
-                   total_duration=0, video_ready=False, thumbnail_ready=False)
-        bg.add_task(_run_job, job_id, req)
-        return {"job_id": job_id, "status": "queued"}
+
+        job_id   = uuid.uuid4().hex[:8]
+        uploads  = OUTPUTS_DIR / "uploads" / job_id
+        uploads.mkdir(parents=True, exist_ok=True)
+        custom   = {}
+
+        async def _save(upload: UploadFile, name: str) -> str:
+            dest = str(uploads / name)
+            with open(dest, "wb") as f:
+                f.write(await upload.read())
+            return dest
+
+        if script_file and script_file.filename:
+            suffix = Path(script_file.filename).suffix or ".txt"
+            custom["script_path"] = await _save(script_file, f"script{suffix}")
+
+        saved_audio = []
+        for i, af in enumerate(audio_files or []):
+            if af and af.filename:
+                suffix = Path(af.filename).suffix or ".mp3"
+                saved_audio.append(await _save(af, f"audio_{i:02d}{suffix}"))
+        if saved_audio:
+            custom["audio_paths"] = saved_audio
+
+        saved_images = []
+        for i, imgf in enumerate(image_files or []):
+            if imgf and imgf.filename:
+                suffix = Path(imgf.filename).suffix or ".jpg"
+                saved_images.append(await _save(imgf, f"image_{i:02d}{suffix}"))
+        if saved_images:
+            custom["image_paths"] = saved_images
+
+        if video_file and video_file.filename:
+            custom["video_path"] = await _save(video_file, "video.mp4")
+
+        job_update(job_id, topic=topic, language=language, style=style,
+                   status="queued", logs=[], errors=[], metadata={}, qa_report={},
+                   video_path="", thumbnail_path="", total_duration=0,
+                   video_ready=False, thumbnail_ready=False,
+                   custom_assets=list(custom.keys()))
+        bg.add_task(_run_job, job_id, topic, language, style, audience, custom)
+        return {"job_id": job_id, "status": "queued",
+                "custom_assets": list(custom.keys())}
     except HTTPException:
         raise
     except Exception as e:

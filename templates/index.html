@@ -70,6 +70,17 @@ select option{background:#0F0F2E}
 .hitl-box{background:#1A1A0A;border:1px solid #FF9F4344;border-radius:10px;padding:18px;text-align:center}
 .hitl-box p{color:#FF9F43;margin-bottom:14px;font-size:.95rem}
 
+/* ── Upload ── */
+.upload-toggle{background:none;border:1px dashed #00C9FF44;border-radius:8px;width:100%;padding:10px;color:#8892B0;cursor:pointer;font-size:.85rem;margin-top:16px;text-align:left;transition:.2s}
+.upload-toggle:hover{border-color:#00C9FF88;color:#00C9FF}
+.upload-panel{display:none;margin-top:14px;border:1px solid #00C9FF18;border-radius:10px;padding:16px;background:#07071A}
+.upload-row{margin-bottom:14px}
+.upload-row label{color:#8892B0;font-size:.75rem;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:5px}
+.upload-row input[type=file]{background:#0F0F2E;border:1.5px dashed #00C9FF33;border-radius:8px;color:#8892B0;padding:8px 10px;font-size:.82rem;cursor:pointer}
+.upload-row input[type=file]:hover{border-color:#00C9FF66}
+.upload-hint{color:#4A5568;font-size:.72rem;margin-top:3px}
+.upload-badge{display:inline-block;background:#00C9FF18;border:1px solid #00C9FF44;border-radius:20px;padding:2px 10px;font-size:.72rem;color:#00C9FF;margin-left:8px}
+
 /* ── Features ── */
 .features{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-bottom:24px}
 .feat{background:#0F0F2E;border:1px solid #00C9FF18;border-radius:99px;padding:6px 16px;font-size:.77rem;color:#8892B0}
@@ -142,6 +153,33 @@ select option{background:#0F0F2E}
 
     <button class="btn-main" id="gen-btn" onclick="generate()">▶ &nbsp; Generate YouTube Video</button>
     <div class="err-msg" id="err-msg"></div>
+
+    <!-- Custom Assets Upload -->
+    <button class="upload-toggle" onclick="toggleUploads(this)">
+      ⬆️ &nbsp; Custom Assets (optional) — upload your own script / audio / images / video
+    </button>
+    <div class="upload-panel" id="upload-panel">
+      <div class="upload-row">
+        <label>📄 Script <span class="upload-hint" style="display:inline">(JSON or TXT — skips AI research &amp; writing)</span></label>
+        <input type="file" id="up-script" accept=".json,.txt,.md">
+        <div class="upload-hint">JSON: {"sections":[{"title":"...","content":"..."}]} &nbsp;·&nbsp; or plain text paragraphs</div>
+      </div>
+      <div class="upload-row">
+        <label>🎵 Audio files <span class="upload-hint" style="display:inline">(MP3/WAV per section — skips TTS)</span></label>
+        <input type="file" id="up-audio" accept=".mp3,.wav,.ogg,.m4a" multiple>
+        <div class="upload-hint">Upload one file per section, in order (section_1.mp3, section_2.mp3 …)</div>
+      </div>
+      <div class="upload-row">
+        <label>🖼️ Scene images <span class="upload-hint" style="display:inline">(JPG/PNG per section — skips AI visuals)</span></label>
+        <input type="file" id="up-images" accept=".jpg,.jpeg,.png,.webp" multiple>
+        <div class="upload-hint">Upload one image per section, in order</div>
+      </div>
+      <div class="upload-row" style="margin-bottom:0">
+        <label>🎬 Video <span class="upload-hint" style="display:inline">(MP4 — skips all generation, only adds metadata)</span></label>
+        <input type="file" id="up-video" accept=".mp4,.mov,.webm">
+        <div class="upload-hint">Provide a finished video; pipeline will only generate thumbnail &amp; SEO metadata</div>
+      </div>
+    </div>
 
     <div style="margin-top:18px;display:flex;gap:10px;align-items:flex-end">
       <div style="flex:1">
@@ -234,6 +272,15 @@ function resumeJob(){
   startPolling();
 }
 
+function toggleUploads(btn){
+  const panel = document.getElementById('upload-panel');
+  const open  = panel.style.display === 'block';
+  panel.style.display = open ? 'none' : 'block';
+  btn.textContent = open
+    ? '⬆️  Custom Assets (optional) — upload your own script / audio / images / video'
+    : '▲  Hide custom assets';
+}
+
 function generate(){
   const topic = document.getElementById('topic').value.trim();
   const err   = document.getElementById('err-msg');
@@ -252,16 +299,23 @@ function generate(){
   });
   setBadge('queued');
 
-  fetch('/generate', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({
-      topic,
-      language: document.getElementById('language').value,
-      style:    document.getElementById('style').value,
-      audience: document.getElementById('audience').value,
-    })
-  })
+  const fd = new FormData();
+  fd.append('topic',    topic);
+  fd.append('language', document.getElementById('language').value);
+  fd.append('style',    document.getElementById('style').value);
+  fd.append('audience', document.getElementById('audience').value);
+
+  const scriptInput = document.getElementById('up-script');
+  const audioInput  = document.getElementById('up-audio');
+  const imagesInput = document.getElementById('up-images');
+  const videoInput  = document.getElementById('up-video');
+
+  if(scriptInput.files[0]) fd.append('script_file', scriptInput.files[0]);
+  [...(audioInput.files||[])].forEach(f => fd.append('audio_files', f));
+  [...(imagesInput.files||[])].forEach(f => fd.append('image_files', f));
+  if(videoInput.files[0]) fd.append('video_file', videoInput.files[0]);
+
+  fetch('/generate', { method: 'POST', body: fd })
   .then(async r => {
     const text = await r.text();
     try { return JSON.parse(text); }
@@ -272,6 +326,13 @@ function generate(){
     JOB_ID = d.job_id;
     localStorage.setItem('yt_agent_job', JOB_ID);
     document.getElementById('job-id-display').textContent = 'Job: ' + JOB_ID;
+    if((d.custom_assets||[]).length){
+      document.getElementById('job-id-display').textContent +=
+        '  ' + d.custom_assets.map(a => ({
+          script_path:'📄 custom script', audio_paths:'🎵 custom audio',
+          image_paths:'🖼️ custom images', video_path:'🎬 custom video'
+        }[a]||a)).join('  ');
+    }
     startPolling();
   })
   .catch(e => {
