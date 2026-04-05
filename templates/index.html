@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>🎬 YouTube AI Agent</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#07071A;color:#E0E8FF;font-family:'Segoe UI',Arial,sans-serif;min-height:100vh;padding:0 0 60px}
+
+/* ── Header ── */
+.header{background:linear-gradient(135deg,#0D0D2E,#1A1A40);border-bottom:1px solid #00C9FF22;padding:22px 0;text-align:center;margin-bottom:32px}
+.header h1{font-size:2rem;background:linear-gradient(90deg,#00C9FF,#92FE9D);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:1px}
+.header p{color:#8892B0;font-size:.9rem;margin-top:6px}
+
+.container{max-width:860px;margin:0 auto;padding:0 20px}
+
+/* ── Cards ── */
+.card{background:#0F0F2E;border:1px solid #00C9FF22;border-radius:14px;padding:24px;margin-bottom:20px}
+.card-title{color:#00C9FF;font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px}
+
+/* ── Inputs ── */
+label{display:block;color:#8892B0;font-size:.78rem;margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px}
+input,select,textarea{width:100%;background:#07071A;border:1.5px solid #00C9FF2A;border-radius:8px;color:#E0E8FF;padding:11px 14px;font-size:.95rem;outline:none;transition:.2s;font-family:inherit}
+input:focus,select:focus{border-color:#00C9FF}
+select option{background:#0F0F2E}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+
+/* ── Buttons ── */
+.btn-main{width:100%;background:linear-gradient(90deg,#00C9FF,#92FE9D);border:none;border-radius:10px;color:#07071A;font-size:1.05rem;font-weight:800;padding:15px;cursor:pointer;letter-spacing:.8px;transition:.2s;margin-top:4px}
+.btn-main:hover{opacity:.88;transform:translateY(-1px)}
+.btn-main:disabled{opacity:.35;cursor:not-allowed;transform:none}
+.btn-approve{background:linear-gradient(90deg,#92FE9D,#00C9FF);border:none;border-radius:8px;color:#07071A;font-weight:800;padding:12px 28px;cursor:pointer;font-size:.95rem;margin-right:10px}
+.btn-reject{background:#FF6B6B22;border:1px solid #FF6B6B55;color:#FF6B6B;border-radius:8px;padding:12px 28px;cursor:pointer;font-size:.95rem}
+
+/* ── Progress ── */
+.progress-wrap{background:#07071A;border-radius:99px;height:8px;overflow:hidden;margin:10px 0}
+.progress-bar{height:100%;background:linear-gradient(90deg,#00C9FF,#92FE9D);border-radius:99px;transition:width .6s ease;width:0%}
+
+/* ── Status ── */
+#status-section{display:none}
+.status-badge{display:inline-block;padding:5px 16px;border-radius:20px;font-size:.8rem;font-weight:700;letter-spacing:.5px;text-transform:uppercase}
+.badge-running{background:#92FE9D22;border:1px solid #92FE9D55;color:#92FE9D}
+.badge-queued{background:#FFD93D22;border:1px solid #FFD93D55;color:#FFD93D}
+.badge-done{background:#00C9FF22;border:1px solid #00C9FF55;color:#00C9FF}
+.badge-failed{background:#FF6B6B22;border:1px solid #FF6B6B55;color:#FF6B6B}
+.badge-waiting{background:#FF9F4322;border:1px solid #FF9F4355;color:#FF9F43}
+
+/* ── Logs ── */
+.log-box{background:#04040F;border:1px solid #ffffff0D;border-radius:8px;padding:12px;max-height:200px;overflow-y:auto;font-family:monospace;font-size:.78rem;line-height:1.7}
+.log-ok{color:#92FE9D}.log-err{color:#FF6B6B}.log-info{color:#8892B0}
+
+/* ── Outputs ── */
+.dl-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-top:14px}
+.dl-btn{display:block;text-align:center;padding:14px 10px;border-radius:10px;text-decoration:none;font-weight:700;font-size:.88rem;transition:.2s}
+.dl-video{background:linear-gradient(135deg,#00C9FF,#0080AA);color:#fff}
+.dl-thumb{background:linear-gradient(135deg,#92FE9D,#00AA55);color:#07071A}
+.dl-script{background:#1A1A40;border:1px solid #00C9FF44;color:#00C9FF}
+.dl-meta{background:#1A1A40;border:1px solid #92FE9D44;color:#92FE9D}
+.dl-btn:hover{opacity:.85;transform:translateY(-2px)}
+
+/* ── Metadata preview ── */
+.meta-box{background:#04040F;border:1px solid #ffffff0D;border-radius:8px;padding:14px;margin-top:10px;font-size:.85rem;line-height:1.8}
+.meta-label{color:#00C9FF;font-weight:700;font-size:.75rem;text-transform:uppercase}
+.tags-wrap{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.tag{background:#00C9FF14;border:1px solid #00C9FF33;border-radius:20px;padding:3px 12px;font-size:.75rem;color:#8892B0}
+
+/* ── HITL ── */
+.hitl-box{background:#1A1A0A;border:1px solid #FF9F4344;border-radius:10px;padding:18px;text-align:center}
+.hitl-box p{color:#FF9F43;margin-bottom:14px;font-size:.95rem}
+
+/* ── Features ── */
+.features{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-bottom:24px}
+.feat{background:#0F0F2E;border:1px solid #00C9FF18;border-radius:99px;padding:6px 16px;font-size:.77rem;color:#8892B0}
+.feat b{color:#00C9FF}
+
+/* ── Agent pipeline visual ── */
+.pipeline{display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:center;margin:14px 0}
+.pipe-step{background:#0F0F2E;border:1px solid #00C9FF22;border-radius:8px;padding:6px 12px;font-size:.76rem;color:#8892B0;text-align:center}
+.pipe-step.active{border-color:#92FE9D;color:#92FE9D;background:#92FE9D10}
+.pipe-step.done{border-color:#00C9FF55;color:#00C9FF}
+.pipe-arrow{color:#00C9FF44;font-size:.9rem}
+
+.err-msg{color:#FF6B6B;font-size:.85rem;margin-top:8px;min-height:18px}
+.qa-score{font-size:2rem;font-weight:800;color:#92FE9D}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🎬 YouTube AI Agent</h1>
+  <p>Multi-agent pipeline · Research → Script → Voice → Visuals → Edit → Upload-ready</p>
+</div>
+
+<div class="container">
+
+  <!-- Features -->
+  <div class="features">
+    <div class="feat"><b>🔍</b> Research Agent</div>
+    <div class="feat"><b>✍️</b> Script Writer</div>
+    <div class="feat"><b>🎙️</b> Neural Voice</div>
+    <div class="feat"><b>🎨</b> AI Visuals</div>
+    <div class="feat"><b>🎞️</b> Auto Editor</div>
+    <div class="feat"><b>🖼️</b> Thumbnail</div>
+    <div class="feat"><b>🧾</b> SEO Metadata</div>
+    <div class="feat"><b>✅</b> QA Agent</div>
+  </div>
+
+  <!-- Input Form -->
+  <div class="card" id="form-section">
+    <div class="card-title">🎯 Video Topic</div>
+    <input type="text" id="topic" placeholder="e.g.  Future of AI Agents in 2026  ·  Black Holes Explained  ·  Crypto 2026" maxlength="120">
+
+    <div class="grid3" style="margin-top:16px">
+      <div>
+        <label>🌍 Language</label>
+        <select id="language">
+          <option>English</option><option>Tamil</option><option>Hindi</option>
+          <option>Telugu</option><option>Spanish</option><option>French</option>
+          <option>German</option><option>Arabic</option><option>Japanese</option>
+          <option>Chinese</option><option>Portuguese</option>
+        </select>
+      </div>
+      <div>
+        <label>🎭 Style</label>
+        <select id="style">
+          <option>Educational</option><option>Cinematic</option>
+          <option>Motivational</option><option>Documentary</option>
+          <option>Storytelling</option>
+        </select>
+      </div>
+      <div>
+        <label>👥 Audience</label>
+        <select id="audience">
+          <option>general</option><option>students</option>
+          <option>professionals</option><option>entrepreneurs</option>
+          <option>tech enthusiasts</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="btn-main" id="gen-btn" onclick="generate()">▶ &nbsp; Generate YouTube Video</button>
+    <div class="err-msg" id="err-msg"></div>
+  </div>
+
+  <!-- Status Section -->
+  <div class="card" id="status-section">
+
+    <!-- Pipeline steps -->
+    <div class="card-title">Pipeline Progress</div>
+    <div class="pipeline" id="pipeline">
+      <div class="pipe-step" id="step-research">🔍 Research</div>
+      <div class="pipe-arrow">›</div>
+      <div class="pipe-step" id="step-script_writer">✍️ Script</div>
+      <div class="pipe-arrow">›</div>
+      <div class="pipe-step" id="step-voice">🎙️ Voice</div>
+      <div class="pipe-arrow">›</div>
+      <div class="pipe-step" id="step-visual">🎨 Visual</div>
+      <div class="pipe-arrow">›</div>
+      <div class="pipe-step" id="step-editor">🎞️ Editor</div>
+      <div class="pipe-arrow">›</div>
+      <div class="pipe-step" id="step-thumbnail">🖼️ Thumb</div>
+      <div class="pipe-arrow">›</div>
+      <div class="pipe-step" id="step-metadata">🧾 Meta</div>
+      <div class="pipe-arrow">›</div>
+      <div class="pipe-step" id="step-qa">✅ QA</div>
+      <div class="pipe-arrow">›</div>
+      <div class="pipe-step" id="step-hitl">👤 Review</div>
+    </div>
+
+    <!-- Status + progress bar -->
+    <div style="display:flex;align-items:center;gap:14px;margin:16px 0 8px">
+      <span class="status-badge" id="status-badge">QUEUED</span>
+      <span id="job-id-display" style="color:#8892B0;font-size:.78rem;font-family:monospace"></span>
+    </div>
+    <div class="progress-wrap"><div class="progress-bar" id="prog-bar"></div></div>
+    <div id="status-msg" style="color:#8892B0;font-size:.83rem;margin-top:4px"></div>
+
+    <!-- Logs -->
+    <div class="log-box" id="log-box" style="margin-top:14px"></div>
+
+    <!-- HITL approval -->
+    <div class="hitl-box" id="hitl-box" style="display:none;margin-top:16px">
+      <p>⏳ Your video is ready for review. Approve to finalize and download.</p>
+      <div id="qa-preview" style="margin-bottom:14px"></div>
+      <button class="btn-approve" onclick="approve(true)">✅ Approve & Download</button>
+      <button class="btn-reject"  onclick="approve(false)">❌ Reject</button>
+    </div>
+
+    <!-- Done: downloads -->
+    <div id="done-box" style="display:none;margin-top:16px">
+      <div style="text-align:center;margin-bottom:12px">
+        <span style="font-size:1.5rem">🎉</span>
+        <span style="color:#92FE9D;font-weight:700;font-size:1.1rem;margin-left:8px">Video Ready!</span>
+      </div>
+      <div class="dl-grid" id="dl-grid"></div>
+      <div class="meta-box" id="meta-box" style="display:none"></div>
+    </div>
+
+  </div>
+
+</div><!-- /container -->
+
+<script>
+let JOB_ID = null;
+let pollTimer = null;
+const STEPS = ['research','script_writer','voice','visual','editor','thumbnail','metadata','qa','hitl'];
+
+function generate(){
+  const topic = document.getElementById('topic').value.trim();
+  const err   = document.getElementById('err-msg');
+  err.textContent = '';
+  if(!topic){ err.textContent = '⚠ Please enter a topic.'; return; }
+
+  document.getElementById('gen-btn').disabled = true;
+  document.getElementById('status-section').style.display = 'block';
+  document.getElementById('done-box').style.display = 'none';
+  document.getElementById('hitl-box').style.display = 'none';
+  document.getElementById('log-box').innerHTML = '';
+  document.getElementById('prog-bar').style.width = '0%';
+  STEPS.forEach(s => {
+    const el = document.getElementById('step-'+s);
+    if(el){ el.className = 'pipe-step'; }
+  });
+  setBadge('queued');
+
+  fetch('/generate', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      topic,
+      language: document.getElementById('language').value,
+      style:    document.getElementById('style').value,
+      audience: document.getElementById('audience').value,
+    })
+  })
+  .then(r => r.json())
+  .then(d => {
+    JOB_ID = d.job_id;
+    document.getElementById('job-id-display').textContent = 'Job: ' + JOB_ID;
+    startPolling();
+  })
+  .catch(e => { err.textContent = '⚠ ' + e; document.getElementById('gen-btn').disabled = false; });
+}
+
+function startPolling(){
+  if(pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(poll, 2500);
+}
+
+async function poll(){
+  if(!JOB_ID) return;
+  try {
+    const d = await fetch('/status/'+JOB_ID).then(r=>r.json());
+    updateUI(d);
+  } catch(e){ console.error(e); }
+}
+
+function updateUI(d){
+  const status = d.status || 'unknown';
+  setBadge(status);
+
+  // Logs
+  const logs = d.logs || [];
+  const lb = document.getElementById('log-box');
+  lb.innerHTML = logs.slice(-25).map(l => {
+    const cls = l.includes('Error')||l.includes('error') ? 'log-err' :
+                (l.includes('Saved')||l.includes('OK')||l.includes('Done')||l.includes('ready')) ? 'log-ok' : 'log-info';
+    return `<div class="${cls}">${escHtml(l)}</div>`;
+  }).join('');
+  lb.scrollTop = lb.scrollHeight;
+
+  // Infer active step from logs
+  const logStr = logs.join(' ');
+  let activeStep = 'research';
+  const stepMap = {
+    '[Research]':'research', '[Script]':'script_writer',
+    '[Voice]':'voice', '[Visual]':'visual',
+    '[Editor]':'editor', '[Thumbnail]':'thumbnail',
+    '[Metadata]':'metadata', '[QA]':'qa',
+    '[HITL]':'hitl', '[Finalizer]':'hitl'
+  };
+  let lastFound = 'research';
+  for(const [kw, step] of Object.entries(stepMap)){
+    if(logStr.includes(kw)) lastFound = step;
+  }
+  markSteps(lastFound, status==='done');
+
+  // Progress bar (estimated)
+  const stepIdx = STEPS.indexOf(lastFound);
+  const pct = status === 'done' ? 100 : Math.min(95, ((stepIdx+1)/STEPS.length)*100);
+  document.getElementById('prog-bar').style.width = pct + '%';
+  document.getElementById('status-msg').textContent = logs[logs.length-1] || '';
+
+  if(status === 'waiting_approval'){
+    clearInterval(pollTimer);
+    showHITL(d);
+  } else if(status === 'done'){
+    clearInterval(pollTimer);
+    showDone(d);
+  } else if(status === 'failed'){
+    clearInterval(pollTimer);
+    document.getElementById('gen-btn').disabled = false;
+    document.getElementById('err-msg').textContent = '⚠ Failed: ' + (d.errors||[]).join(' ');
+  }
+}
+
+function markSteps(activeStep, allDone){
+  const ai = STEPS.indexOf(activeStep);
+  STEPS.forEach((s, i) => {
+    const el = document.getElementById('step-'+s);
+    if(!el) return;
+    if(allDone)       el.className = 'pipe-step done';
+    else if(i < ai)   el.className = 'pipe-step done';
+    else if(i === ai) el.className = 'pipe-step active';
+    else              el.className = 'pipe-step';
+  });
+}
+
+function showHITL(d){
+  document.getElementById('hitl-box').style.display = 'block';
+  const qa = d.qa_report || {};
+  document.getElementById('qa-preview').innerHTML =
+    `<span class="qa-score">${qa.score||'--'}/100</span>
+     <span style="color:#8892B0;margin-left:8px">QA Grade: <b style="color:#92FE9D">${qa.grade||'?'}</b></span>
+     ${(qa.issues||[]).length ? '<br><small style="color:#FF9F43">Issues: '+(qa.issues||[]).slice(0,2).join(' · ')+'</small>' : ''}`;
+}
+
+function showDone(d){
+  document.getElementById('hitl-box').style.display = 'none';
+  document.getElementById('done-box').style.display = 'block';
+  document.getElementById('gen-btn').disabled = false;
+
+  const grid = document.getElementById('dl-grid');
+  grid.innerHTML = '';
+  if(d.video_ready)
+    grid.innerHTML += `<a class="dl-btn dl-video" href="/download/${JOB_ID}/video" download>🎬 Download Video MP4</a>`;
+  if(d.thumbnail_ready)
+    grid.innerHTML += `<a class="dl-btn dl-thumb" href="/download/${JOB_ID}/thumbnail" download>🖼️ Thumbnail</a>`;
+  grid.innerHTML += `<a class="dl-btn dl-script" href="/download/${JOB_ID}/script" download>📝 Script JSON</a>`;
+  grid.innerHTML += `<a class="dl-btn dl-meta" href="/download/${JOB_ID}/metadata" download>🏷️ Metadata</a>`;
+
+  const meta = d.metadata || {};
+  if(meta.title){
+    const mb = document.getElementById('meta-box');
+    mb.style.display = 'block';
+    mb.innerHTML = `
+      <div class="meta-label">Generated Title</div>
+      <div style="color:#E0E8FF;font-weight:700;margin-bottom:10px">${escHtml(meta.title)}</div>
+      ${meta.tags ? `<div class="meta-label">Tags</div>
+      <div class="tags-wrap">${(meta.tags||[]).slice(0,12).map(t=>`<span class="tag">${escHtml(t)}</span>`).join('')}</div>` : ''}
+      ${meta.description ? `<details style="margin-top:10px"><summary style="color:#8892B0;cursor:pointer;font-size:.8rem">View Description</summary>
+      <pre style="white-space:pre-wrap;color:#8892B0;font-size:.78rem;margin-top:6px;font-family:inherit">${escHtml(meta.description)}</pre></details>` : ''}
+    `;
+  }
+}
+
+function approve(yes){
+  fetch('/approve/'+JOB_ID, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({approved: yes})
+  }).then(()=>{
+    document.getElementById('hitl-box').style.display = 'none';
+    if(yes){ setBadge('finalizing'); startPolling(); }
+    else   { setBadge('rejected'); }
+  });
+}
+
+function setBadge(status){
+  const el  = document.getElementById('status-badge');
+  const map = {
+    queued:'badge-queued', running:'badge-running', done:'badge-done',
+    failed:'badge-failed', waiting_approval:'badge-waiting',
+    finalizing:'badge-running', rejected:'badge-failed'
+  };
+  el.className = 'status-badge ' + (map[status]||'badge-queued');
+  el.textContent = status.replace('_',' ').toUpperCase();
+}
+
+function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+</script>
+</body>
+</html>
