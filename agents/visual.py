@@ -1,7 +1,7 @@
 """Visual Agent — generates scene images for each script section."""
 import os
 from graph.state import VideoState
-from tools.image_client import generate_scene_image
+from tools.image_client import generate_scene_image, set_image_language
 from config import OUTPUTS_DIR
 
 
@@ -12,6 +12,7 @@ def visual_agent(state: VideoState) -> VideoState:
     logs    = state.get("logs", [])
     logs.append("[Visual] Generating scene images...")
 
+    set_image_language(state.get("language", "English"))
     sections   = script.get("sections", [])
     img_dir    = OUTPUTS_DIR / "images" / job_id
     img_dir.mkdir(parents=True, exist_ok=True)

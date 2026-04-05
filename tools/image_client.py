@@ -11,13 +11,49 @@ from config import VIDEO_W, VIDEO_H, FONTS_DIR, IMAGE_PROVIDER, HF_API_TOKEN, ge
 W, H = VIDEO_W, VIDEO_H
 
 # ── Fonts ─────────────────────────────────────────────────────────────────────
+import re as _re
+_EMOJI_RE = _re.compile(
+    "[\U00010000-\U0010ffff\U00002600-\U000027BF\U0001F300-\U0001FAFF]+",
+    flags=_re.UNICODE,
+)
+def _clean(text: str) -> str:
+    return _EMOJI_RE.sub("", str(text)).strip()
+
+_SCRIPT_FONTS = {
+    "tamil":  ("NotoSansTamil-Regular.ttf",      "NotoSansTamil-Bold.ttf"),
+    "hindi":  ("NotoSansDevanagari-Regular.ttf",  "NotoSansDevanagari-Bold.ttf"),
+    "telugu": ("NotoSansTelugu-Regular.ttf",       "NotoSansTelugu-Regular.ttf"),
+    "arabic": ("NotoSansArabic-Regular.ttf",       "NotoSansArabic-Regular.ttf"),
+}
+_ACTIVE_SCRIPT = "latin"
+
+def set_image_language(language: str):
+    global _ACTIVE_SCRIPT, _FC
+    lang = language.lower()
+    if "tamil" in lang:       _ACTIVE_SCRIPT = "tamil"
+    elif lang in ("hindi", "devanagari"): _ACTIVE_SCRIPT = "hindi"
+    elif "telugu" in lang:    _ACTIVE_SCRIPT = "telugu"
+    elif "arabic" in lang:    _ACTIVE_SCRIPT = "arabic"
+    else:                     _ACTIVE_SCRIPT = "latin"
+    _FC.clear()
+
 _FC = {}
 def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     k = (size, bold)
     if k not in _FC:
-        fname = "NotoSans-Bold.ttf" if bold else "NotoSans-Regular.ttf"
-        try:    _FC[k] = ImageFont.truetype(str(FONTS_DIR / fname), size)
-        except: _FC[k] = ImageFont.load_default()
+        if _ACTIVE_SCRIPT in _SCRIPT_FONTS:
+            reg, bld = _SCRIPT_FONTS[_ACTIVE_SCRIPT]
+            fname = bld if bold else reg
+        else:
+            fname = "NotoSans-Bold.ttf" if bold else "NotoSans-Regular.ttf"
+        try:
+            _FC[k] = ImageFont.truetype(str(FONTS_DIR / fname), size)
+        except Exception:
+            try:
+                fallback = "NotoSans-Bold.ttf" if bold else "NotoSans-Regular.ttf"
+                _FC[k] = ImageFont.truetype(str(FONTS_DIR / fallback), size)
+            except Exception:
+                _FC[k] = ImageFont.load_default()
     return _FC[k]
 
 def _tw(draw, text, font):
@@ -84,6 +120,7 @@ def _decor(draw: ImageDraw.Draw, palette: dict, seed: int = 0):
 # ── Section header ─────────────────────────────────────────────────────────────
 def _draw_header(draw, palette, title: str, section_num: int) -> int:
     """Draw badge + title. Returns y where content starts."""
+    title  = _clean(title)
     acc    = palette["accent"]
     text_c = palette["text"]
 
@@ -112,6 +149,8 @@ def _draw_header(draw, palette, title: str, section_num: int) -> int:
 
 # ── Scene shell renderers ──────────────────────────────────────────────────────
 def _shell_intro(draw, palette, topic: str, subtitle: str):
+    topic    = _clean(topic)
+    subtitle = _clean(subtitle)
     acc    = palette["accent"]
     acc2   = palette["accent2"]
     text_c = palette["text"]
@@ -164,6 +203,8 @@ def _shell_section(draw, palette, title: str, idx: int):
 
 
 def _shell_stat(draw, palette, label: str, title: str):
+    label = _clean(label)
+    title = _clean(title)
     acc    = palette["accent"]
     text_c = palette["text"]
 
@@ -192,6 +233,7 @@ def _shell_stat(draw, palette, label: str, title: str):
 
 
 def _shell_quote(draw, palette, title: str, idx: int):
+    title = _clean(title)
     acc    = palette["accent"]
     text_c = palette["text"]
 
@@ -209,6 +251,8 @@ def _shell_quote(draw, palette, title: str, idx: int):
 
 
 def _shell_chart(draw, palette, title: str, idx: int, labels: list):
+    title  = _clean(title)
+    labels = [_clean(l) for l in labels]
     acc    = palette["accent"]
     text_c = palette["text"]
 
