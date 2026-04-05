@@ -16,6 +16,25 @@ app = FastAPI(title="YouTube AI Agent", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["*"], allow_headers=["*"])
 
+# ── Font diagnostic on startup ────────────────────────────────────────────────
+def _check_fonts():
+    from config import FONTS_DIR
+    from PIL import ImageFont, Image, ImageDraw
+    print(f"[FONT] FONTS_DIR = {FONTS_DIR}")
+    for name in ["NotoSans-Regular.ttf", "NotoSans-Bold.ttf"]:
+        p = FONTS_DIR / name
+        print(f"[FONT] {name}: exists={p.exists()}", flush=True)
+        if p.exists():
+            try:
+                f = ImageFont.truetype(str(p), 20)
+                img = Image.new("RGB", (200, 30), (0, 0, 0))
+                ImageDraw.Draw(img).text((5, 5), "Hello Test", font=f, fill=(255,255,255))
+                print(f"[FONT] {name}: LOADED OK", flush=True)
+            except Exception as e:
+                print(f"[FONT] {name}: FAILED — {e}", flush=True)
+
+_check_fonts()
+
 JOBS_DIR    = OUTPUTS_DIR / "jobs"
 JOBS_DIR.mkdir(parents=True, exist_ok=True)
 _INDEX_HTML = BASE_DIR / "templates" / "index.html"
