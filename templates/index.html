@@ -235,13 +235,22 @@ function generate(){
       audience: document.getElementById('audience').value,
     })
   })
-  .then(r => r.json())
+  .then(async r => {
+    const text = await r.text();
+    try { return JSON.parse(text); }
+    catch(e) { throw new Error(text.slice(0,200)); }
+  })
   .then(d => {
+    if(d.error){ throw new Error(d.error + '\n' + (d.trace||'')); }
     JOB_ID = d.job_id;
     document.getElementById('job-id-display').textContent = 'Job: ' + JOB_ID;
     startPolling();
   })
-  .catch(e => { err.textContent = '⚠ ' + e; document.getElementById('gen-btn').disabled = false; });
+  .catch(e => {
+    err.textContent = '⚠ ' + e.message;
+    document.getElementById('gen-btn').disabled = false;
+    document.getElementById('status-section').style.display = 'none';
+  });
 }
 
 function startPolling(){
