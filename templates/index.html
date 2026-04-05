@@ -264,7 +264,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
 function resumeJob(){
   const id = document.getElementById('resume-id').value.trim();
-  if(!id){ return; }
+  if(!id){ document.getElementById('err-msg').textContent = '⚠ Enter a Job ID first.'; return; }
   JOB_ID = id;
   localStorage.setItem('yt_agent_job', id);
   document.getElementById('job-id-display').textContent = 'Job: ' + id;
@@ -272,6 +272,13 @@ function resumeJob(){
   document.getElementById('done-box').style.display = 'none';
   document.getElementById('hitl-box').style.display = 'none';
   document.getElementById('err-msg').textContent = '';
+  document.getElementById('log-box').innerHTML = '';
+  document.getElementById('prog-bar').style.width = '0%';
+  STEPS.forEach(s => {
+    const el = document.getElementById('step-'+s);
+    if(el) el.className = 'pipe-step';
+  });
+  setBadge('queued');
   startPolling();
 }
 
@@ -353,7 +360,17 @@ function startPolling(){
 async function poll(){
   if(!JOB_ID) return;
   try {
-    const d = await fetch('/status/'+JOB_ID).then(r=>r.json());
+    const r = await fetch('/status/'+JOB_ID);
+    if(r.status === 404){
+      clearInterval(pollTimer);
+      pollTimer = null;
+      document.getElementById('err-msg').textContent = 'Job not found (server may have restarted). Submit a new video.';
+      document.getElementById('status-section').style.display = 'none';
+      document.getElementById('gen-btn').disabled = false;
+      localStorage.removeItem('yt_agent_job');
+      return;
+    }
+    const d = await r.json();
     updateUI(d);
   } catch(e){ console.error(e); }
 }
@@ -372,21 +389,29 @@ function updateUI(d){
   }).join('');
   lb.scrollTop = lb.scrollHeight;
 
-  // Infer active step from logs
-  const logStr = logs.join(' ');
-  let activeStep = 'research';
-  const stepMap = {
-    '[Research]':'research', '[Script]':'script_writer',
-    '[Voice]':'voice', '[Visual]':'visual',
-    '[Editor]':'editor', '[Thumbnail]':'thumbnail',
-    '[Metadata]':'metadata', '[QA]':'qa',
-    '[HITL]':'hitl', '[Finalizer]':'hitl'
+  // Use current_agent from server, fall back to inferring from logs
+  const agentMap = {
+    'research':'research', 'script_writer':'script_writer',
+    'voice':'voice', 'visual':'visual', 'editor':'editor',
+    'thumbnail':'thumbnail', 'metadata':'metadata',
+    'qa':'qa', 'hitl':'hitl', 'finalizer':'hitl'
   };
-  let lastFound = 'research';
-  for(const [kw, step] of Object.entries(stepMap)){
-    if(logStr.includes(kw)) lastFound = step;
+  let activeStep = agentMap[d.current_agent] || null;
+  if(!activeStep){
+    const logStr = logs.join(' ');
+    const stepMap = {
+      '[Research]':'research', '[Script]':'script_writer',
+      '[Voice]':'voice', '[Visual]':'visual',
+      '[Editor]':'editor', '[Thumbnail]':'thumbnail',
+      '[Metadata]':'metadata', '[QA]':'qa',
+      '[HITL]':'hitl', '[Finalizer]':'hitl'
+    };
+    activeStep = 'research';
+    for(const [kw, step] of Object.entries(stepMap)){
+      if(logStr.includes(kw)) activeStep = step;
+    }
   }
-  markSteps(lastFound, status==='done');
+  markSteps(activeStep, status==='done');
 
   // Progress bar (estimated)
   const stepIdx = STEPS.indexOf(lastFound);
