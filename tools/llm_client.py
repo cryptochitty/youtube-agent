@@ -3,19 +3,27 @@ Lightweight LLM client — direct HTTP calls, no LangChain/LangGraph.
 Groq (free) → Ollama (local) → fallback stub.
 Saves ~300MB RAM vs langchain stack.
 """
-import json, re, requests
+import json, re, time, requests
 from config import LLM_PROVIDER, GROQ_API_KEY, GROQ_MODEL, OLLAMA_URL, OLLAMA_MODEL
 
 
-def invoke_llm(prompt: str, system: str = "") -> str:
-    """Call LLM and return text response."""
-    if LLM_PROVIDER == "groq" and GROQ_API_KEY:
-        return _groq(prompt, system)
-    if LLM_PROVIDER in ("ollama", "groq"):
-        return _ollama(prompt, system)
-    if LLM_PROVIDER == "openai":
-        return _openai(prompt, system)
-    return _stub(prompt)
+def invoke_llm(prompt: str, system: str = "", _attempt: int = 0) -> str:
+    """Call LLM and return text response. Auto-retries on 429 with backoff."""
+    try:
+        if LLM_PROVIDER == "groq" and GROQ_API_KEY:
+            return _groq(prompt, system)
+        if LLM_PROVIDER in ("ollama", "groq"):
+            return _ollama(prompt, system)
+        if LLM_PROVIDER == "openai":
+            return _openai(prompt, system)
+        return _stub(prompt)
+    except requests.exceptions.HTTPError as e:
+        if e.response is not None and e.response.status_code == 429 and _attempt < 4:
+            wait = 15 * (2 ** _attempt)  # 15s, 30s, 60s, 120s
+            print(f"[LLM] 429 rate limit — waiting {wait}s (attempt {_attempt+1}/4)...")
+            time.sleep(wait)
+            return invoke_llm(prompt, system, _attempt + 1)
+        raise
 
 
 def invoke_json(prompt: str, system: str = "", retries: int = 2) -> dict:
