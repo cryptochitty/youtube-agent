@@ -256,10 +256,16 @@ let JOB_ID = null;
 let pollTimer = null;
 const STEPS = ['research','script_writer','voice','visual','editor','thumbnail','metadata','qa','hitl'];
 
-// Restore last job on page load
+// Restore last job on page load — auto-resume polling
 window.addEventListener('DOMContentLoaded', () => {
   const saved = localStorage.getItem('yt_agent_job');
-  if(saved){ document.getElementById('resume-id').value = saved; }
+  if(saved){
+    document.getElementById('resume-id').value = saved;
+    JOB_ID = saved;
+    document.getElementById('job-id-display').textContent = 'Job: ' + saved;
+    document.getElementById('status-section').style.display = 'block';
+    startPolling();
+  }
 });
 
 function resumeJob(){
