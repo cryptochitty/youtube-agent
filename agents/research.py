@@ -35,7 +35,7 @@ Analyze this topic and return a JSON object with these exact keys:
   "estimated_duration": 8
 }}"""
 
-    research = invoke_json(prompt)
+    research = invoke_json(prompt, max_tokens=1024)
 
     # Fallback if LLM fails
     if not research:

@@ -283,8 +283,9 @@ def _run_job(job_id: str, topic: str, language: str, style: str, audience: str,
 
     except Exception as e:
         tb = traceback.format_exc()
+        existing_logs = (job_get(job_id) or {}).get("logs", [])
         job_update(job_id, status="failed",
-                   errors=[str(e)], logs=job_get(job_id).get("logs", []) + [tb[-1000:]])
+                   errors=[str(e)], logs=existing_logs + [tb[-1000:]])
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────

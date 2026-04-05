@@ -39,7 +39,7 @@ Generate SEO-optimized YouTube metadata. Return JSON:
 Title requirements: include year (2025/2026), numbers, emotional triggers
 Description requirements: first 2 lines must be compelling (shown in search)"""
 
-    metadata = invoke_json(prompt)
+    metadata = invoke_json(prompt, max_tokens=1024)
 
     if not metadata or not metadata.get("title"):
         metadata = _fallback_metadata(topic, section_titles, duration)

@@ -56,7 +56,7 @@ Requirements:
 - Hook must be dramatic and attention-grabbing
 - CTA must feel genuine, not salesy"""
 
-    script = invoke_json(prompt)
+    script = invoke_json(prompt, max_tokens=2048)
 
     if not script or not script.get("sections"):
         script = _fallback_script(topic, key_points, language)

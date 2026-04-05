@@ -19,7 +19,8 @@ def thumbnail_agent(state: VideoState) -> VideoState:
         # Ask LLM for a shorter, punchier thumbnail text
         result = invoke_json(
             f'Generate a short (max 4 words, ALL CAPS) thumbnail text for a YouTube video about "{topic}". '
-            'Return JSON: {{"thumbnail_text": "YOUR TEXT"}}'
+            'Return JSON: {{"thumbnail_text": "YOUR TEXT"}}',
+            max_tokens=64,
         )
         thumb_title = result.get("thumbnail_text", topic.upper()[:30])
 

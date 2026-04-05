@@ -490,7 +490,7 @@ function approve(yes){
   }).then(()=>{
     document.getElementById('hitl-box').style.display = 'none';
     if(yes){ setBadge('finalizing'); startPolling(); }
-    else   { setBadge('rejected'); }
+    else   { setBadge('rejected'); document.getElementById('gen-btn').disabled = false; }
   });
 }
 
