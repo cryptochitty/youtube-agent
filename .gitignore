@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+.venv/
+outputs/
+*.mp4
+*.mp3
+*.jpg
+*.jpeg
+*.png
+*.wav

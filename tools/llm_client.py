@@ -37,13 +37,22 @@ def invoke_llm(prompt: str, system: str = "", _attempt: int = 0,
 
 def invoke_json(prompt: str, system: str = "", retries: int = 2,
                 max_tokens: int = 4096) -> dict:
-    """Call LLM, parse and return JSON dict."""
+    """Call LLM, parse and return JSON dict. Never raises — returns {} on any error."""
     for attempt in range(retries + 1):
-        raw = invoke_llm(
-            prompt + "\n\nRespond ONLY with valid JSON. No markdown, no explanation.",
-            system,
-            max_tokens=max_tokens,
-        )
+        try:
+            raw = invoke_llm(
+                prompt + "\n\nRespond ONLY with valid JSON. No markdown, no explanation.",
+                system,
+                max_tokens=max_tokens,
+            )
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 413:
+                print(f"[LLM] invoke_json: 413 payload too large — skipping")
+                return {}
+            raise
+        except Exception as e:
+            print(f"[LLM] invoke_json error: {e}")
+            return {}
         raw = re.sub(r"```(?:json)?\s*", "", raw).strip().rstrip("`").strip()
         try:
             return json.loads(raw)
