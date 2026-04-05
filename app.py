@@ -4,10 +4,9 @@ Job state persisted to disk so Render restarts don't lose progress.
 """
 import uuid, threading, json, traceback, os
 from pathlib import Path
-from fastapi import FastAPI, BackgroundTasks, HTTPException, Request
+from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from config import OUTPUTS_DIR, BASE_DIR
 
@@ -15,9 +14,9 @@ app = FastAPI(title="YouTube AI Agent", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["*"], allow_headers=["*"])
 
-JOBS_DIR   = OUTPUTS_DIR / "jobs"
+JOBS_DIR      = OUTPUTS_DIR / "jobs"
 JOBS_DIR.mkdir(parents=True, exist_ok=True)
-templates  = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+_INDEX_HTML   = BASE_DIR / "templates" / "index.html"
 
 
 # ── Disk-persisted job state ──────────────────────────────────────────────────
@@ -178,8 +177,8 @@ async def dl_meta(job_id: str):
                         filename=f"metadata_{job_id}.json")
 
 @app.get("/", response_class=HTMLResponse)
-async def root(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+async def root():
+    return HTMLResponse(_INDEX_HTML.read_text(encoding="utf-8"))
 
 if __name__ == "__main__":
     import uvicorn
