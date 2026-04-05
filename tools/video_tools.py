@@ -2,7 +2,7 @@
 Video assembly — combines images + audio into MP4.
 Per-frame animated overlays: bullets, counter, bar chart, quote reveal.
 """
-import os, subprocess, textwrap, math
+import os, re, subprocess, textwrap, math
 from pathlib import Path
 from typing import List
 import numpy as np
@@ -11,6 +11,18 @@ import imageio
 from config import VIDEO_W, VIDEO_H, VIDEO_FPS, FONTS_DIR, MUSIC_DIR
 
 W, H, FPS = VIDEO_W, VIDEO_H, VIDEO_FPS
+
+# Strip emoji and other non-BMP characters that NotoSans can't render
+_EMOJI_RE = re.compile(
+    "[\U00010000-\U0010ffff"   # non-BMP (emoji, symbols)
+    "\U00002600-\U000027BF"    # misc symbols, dingbats
+    "\U0001F300-\U0001FAFF"    # emoji block
+    "]+",
+    flags=re.UNICODE,
+)
+
+def _clean(text: str) -> str:
+    return _EMOJI_RE.sub("", text).strip()
 
 # ── Fonts ─────────────────────────────────────────────────────────────────────
 _FC = {}
@@ -70,6 +82,7 @@ def _tw(draw_or_none, text, font):
 def _overlay_bullets(img: Image.Image, bullets: list, progress: float,
                      accent, accent2) -> Image.Image:
     """Reveal bullet points one by one as scene plays."""
+    bullets = [_clean(b) for b in bullets if _clean(b)]
     if not bullets:
         return img
     draw = ImageDraw.Draw(img)
@@ -207,6 +220,7 @@ def _overlay_chart(img: Image.Image, chart_data: list, progress: float,
 def _overlay_quote(img: Image.Image, text: str, progress: float,
                    accent) -> Image.Image:
     """Reveal quote word by word."""
+    text  = _clean(text)
     draw  = ImageDraw.Draw(img)
     words = text.split()
     if not words:
@@ -241,6 +255,7 @@ def _overlay_quote(img: Image.Image, text: str, progress: float,
 # ── Subtitle overlay ──────────────────────────────────────────────────────────
 def draw_subtitle_frame(frame_arr: np.ndarray, text: str,
                         progress: float, accent_color: tuple) -> np.ndarray:
+    text = _clean(text)
     img  = Image.fromarray(frame_arr)
     draw = ImageDraw.Draw(img)
     f    = _font(12)
