@@ -142,6 +142,14 @@ select option{background:#0F0F2E}
 
     <button class="btn-main" id="gen-btn" onclick="generate()">▶ &nbsp; Generate YouTube Video</button>
     <div class="err-msg" id="err-msg"></div>
+
+    <div style="margin-top:18px;display:flex;gap:10px;align-items:flex-end">
+      <div style="flex:1">
+        <label>🔁 Resume existing job</label>
+        <input type="text" id="resume-id" placeholder="Paste Job ID to check status / approve" maxlength="32">
+      </div>
+      <button class="btn-main" style="width:auto;padding:11px 20px;margin-top:0;font-size:.88rem" onclick="resumeJob()">Load</button>
+    </div>
   </div>
 
   <!-- Status Section -->
@@ -207,6 +215,25 @@ let JOB_ID = null;
 let pollTimer = null;
 const STEPS = ['research','script_writer','voice','visual','editor','thumbnail','metadata','qa','hitl'];
 
+// Restore last job on page load
+window.addEventListener('DOMContentLoaded', () => {
+  const saved = localStorage.getItem('yt_agent_job');
+  if(saved){ document.getElementById('resume-id').value = saved; }
+});
+
+function resumeJob(){
+  const id = document.getElementById('resume-id').value.trim();
+  if(!id){ return; }
+  JOB_ID = id;
+  localStorage.setItem('yt_agent_job', id);
+  document.getElementById('job-id-display').textContent = 'Job: ' + id;
+  document.getElementById('status-section').style.display = 'block';
+  document.getElementById('done-box').style.display = 'none';
+  document.getElementById('hitl-box').style.display = 'none';
+  document.getElementById('err-msg').textContent = '';
+  startPolling();
+}
+
 function generate(){
   const topic = document.getElementById('topic').value.trim();
   const err   = document.getElementById('err-msg');
@@ -243,6 +270,7 @@ function generate(){
   .then(d => {
     if(d.error){ throw new Error(d.error + '\n' + (d.trace||'')); }
     JOB_ID = d.job_id;
+    localStorage.setItem('yt_agent_job', JOB_ID);
     document.getElementById('job-id-display').textContent = 'Job: ' + JOB_ID;
     startPolling();
   })
