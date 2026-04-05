@@ -1,219 +1,192 @@
 """
 FastAPI server — REST API for the YouTube Agent pipeline.
-
-Endpoints:
-  POST /generate        — start a job
-  GET  /status/{job_id} — poll job status + logs
-  GET  /download/{job_id}/video
-  GET  /download/{job_id}/thumbnail
-  GET  /download/{job_id}/script
-  GET  /download/{job_id}/metadata
-  POST /approve/{job_id} — human approval (HITL)
+Job state persisted to disk so Render restarts don't lose progress.
 """
-import uuid, threading, json
+import uuid, threading, json, traceback, os
 from pathlib import Path
-from typing import Optional
 from fastapi import FastAPI, BackgroundTasks, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from config import OUTPUTS_DIR
 
 app = FastAPI(title="YouTube AI Agent", version="1.0.0")
+app.add_middleware(CORSMiddleware, allow_origins=["*"],
+                   allow_methods=["*"], allow_headers=["*"])
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
-)
-
-# In-memory job store
-JOBS: dict = {}
+JOBS_DIR = OUTPUTS_DIR / "jobs"
+JOBS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# ── Request models ────────────────────────────────────────────────────────────
+# ── Disk-persisted job state ──────────────────────────────────────────────────
+def job_write(job_id: str, data: dict):
+    path = JOBS_DIR / f"{job_id}.json"
+    existing = job_read(job_id) or {}
+    existing.update(data)
+    path.write_text(json.dumps(existing, ensure_ascii=False))
+
+def job_read(job_id: str) -> dict | None:
+    path = JOBS_DIR / f"{job_id}.json"
+    if path.exists():
+        try: return json.loads(path.read_text())
+        except Exception: pass
+    return None
+
+
+# ── Request models ─────────────────────────────────────────────────────────────
 class GenerateRequest(BaseModel):
     topic:    str
     language: str = "English"
     style:    str = "Educational"
     audience: str = "general"
 
-
 class ApproveRequest(BaseModel):
     approved: bool = True
 
 
-# ── Background worker ─────────────────────────────────────────────────────────
-def _run_job(job_id: str, request: GenerateRequest):
-    JOBS[job_id]["status"] = "running"
-    JOBS[job_id]["logs"].append("Pipeline started...")
+# ── Background worker ──────────────────────────────────────────────────────────
+def _run_job(job_id: str, req: GenerateRequest):
+    job_write(job_id, {"status": "running", "logs": ["Pipeline started..."]})
     try:
         from graph.workflow import run_pipeline
         final = run_pipeline(
-            topic    = request.topic,
-            language = request.language,
-            style    = request.style,
-            audience = request.audience,
+            topic    = req.topic,
+            language = req.language,
+            style    = req.style,
+            audience = req.audience,
             mode     = "api",
             job_id   = job_id,
         )
-        JOBS[job_id].update({
-            "status":         final.get("status", "done"),
-            "video_path":     final.get("video_path", ""),
-            "thumbnail_path": final.get("thumbnail_path", ""),
-            "metadata":       final.get("metadata", {}),
-            "qa_report":      final.get("qa_report", {}),
-            "total_duration": final.get("total_duration", 0),
-            "logs":           final.get("logs", []),
-            "errors":         final.get("errors", []),
-            "_state":         final,
+        job_write(job_id, {
+            "status":          final.get("status", "done"),
+            "video_path":      final.get("video_path", ""),
+            "thumbnail_path":  final.get("thumbnail_path", ""),
+            "metadata":        final.get("metadata", {}),
+            "qa_report":       final.get("qa_report", {}),
+            "total_duration":  final.get("total_duration", 0),
+            "logs":            final.get("logs", []),
+            "errors":          final.get("errors", []),
         })
-        if final.get("status") != "waiting_approval":
-            JOBS[job_id]["status"] = "done"
+        # If not waiting for approval, mark done
+        s = final.get("status")
+        if s not in ("waiting_approval", "rejected"):
+            job_write(job_id, {"status": "done"})
     except Exception as e:
-        import traceback
-        JOBS[job_id]["status"] = "failed"
-        JOBS[job_id]["errors"].append(str(e))
-        JOBS[job_id]["logs"].append(traceback.format_exc())
+        job_write(job_id, {
+            "status": "failed",
+            "errors": [str(e)],
+            "logs":   [traceback.format_exc()[-2000:]],
+        })
 
 
-# ── Routes ────────────────────────────────────────────────────────────────────
+# ── Routes ─────────────────────────────────────────────────────────────────────
 @app.post("/generate")
 async def generate(req: GenerateRequest, bg: BackgroundTasks):
-    """Start a video generation job. Returns job_id immediately."""
     job_id = uuid.uuid4().hex[:8]
-    JOBS[job_id] = {
-        "job_id":   job_id,
-        "topic":    req.topic,
-        "language": req.language,
-        "style":    req.style,
-        "status":   "queued",
-        "logs":     [],
-        "errors":   [],
-        "metadata": {},
-        "qa_report": {},
-        "video_path": "",
-        "thumbnail_path": "",
-        "total_duration": 0,
-    }
+    job_write(job_id, {
+        "job_id": job_id, "topic": req.topic, "language": req.language,
+        "style": req.style, "status": "queued",
+        "logs": [], "errors": [], "metadata": {}, "qa_report": {},
+        "video_path": "", "thumbnail_path": "", "total_duration": 0,
+    })
     bg.add_task(_run_job, job_id, req)
     return {"job_id": job_id, "status": "queued"}
 
 
 @app.get("/status/{job_id}")
 async def status(job_id: str):
-    """Poll job status and progress logs."""
-    job = JOBS.get(job_id)
+    job = job_read(job_id)
     if not job:
-        # Try loading from disk
-        summary_path = OUTPUTS_DIR / f"{job_id}_summary.json"
-        if summary_path.exists():
-            return json.loads(summary_path.read_text())
         raise HTTPException(404, "Job not found")
-
+    vp = job.get("video_path", "")
+    tp = job.get("thumbnail_path", "")
     return {
-        "job_id":         job_id,
-        "status":         job["status"],
-        "topic":          job["topic"],
-        "logs":           job["logs"][-20:],   # last 20 log lines
-        "errors":         job["errors"],
-        "metadata":       job.get("metadata", {}),
-        "qa_report":      job.get("qa_report", {}),
-        "total_duration": job.get("total_duration", 0),
-        "video_ready":    bool(job.get("video_path") and
-                               Path(job["video_path"]).exists()),
-        "thumbnail_ready": bool(job.get("thumbnail_path") and
-                                Path(job["thumbnail_path"]).exists()),
+        "job_id":          job_id,
+        "status":          job.get("status", "unknown"),
+        "topic":           job.get("topic", ""),
+        "logs":            job.get("logs", [])[-30:],
+        "errors":          job.get("errors", []),
+        "metadata":        job.get("metadata", {}),
+        "qa_report":       job.get("qa_report", {}),
+        "total_duration":  job.get("total_duration", 0),
+        "video_ready":     bool(vp and Path(vp).exists()),
+        "thumbnail_ready": bool(tp and Path(tp).exists()),
     }
 
 
 @app.post("/approve/{job_id}")
 async def approve(job_id: str, req: ApproveRequest, bg: BackgroundTasks):
-    """Human approval endpoint for HITL step."""
-    job = JOBS.get(job_id)
+    job = job_read(job_id)
     if not job:
         raise HTTPException(404, "Job not found")
-    if job["status"] != "waiting_approval":
-        raise HTTPException(400, f"Job is in status '{job['status']}', not waiting for approval")
-
     if not req.approved:
-        JOBS[job_id]["status"] = "rejected"
+        job_write(job_id, {"status": "rejected"})
         return {"status": "rejected"}
 
-    # Resume pipeline from finalizer
     def _finalize():
         try:
             from agents.finalizer import finalizer_agent
-            state = JOBS[job_id].get("_state", {})
+            summary_path = OUTPUTS_DIR / f"{job_id}_summary.json"
+            if summary_path.exists():
+                state = json.loads(summary_path.read_text())
+            else:
+                state = job_read(job_id) or {}
             state["human_approved"] = True
             state["status"] = "running"
             final = finalizer_agent(state)
-            JOBS[job_id].update({
-                "status": "done",
-                "logs":   final.get("logs", []),
-            })
+            job_write(job_id, {"status": "done", "logs": final.get("logs", [])})
         except Exception as e:
-            JOBS[job_id]["status"] = "failed"
-            JOBS[job_id]["errors"].append(str(e))
+            job_write(job_id, {"status": "failed", "errors": [str(e)]})
 
+    job_write(job_id, {"status": "finalizing"})
     bg.add_task(_finalize)
-    JOBS[job_id]["status"] = "finalizing"
     return {"status": "finalizing"}
 
 
 @app.get("/download/{job_id}/video")
-async def download_video(job_id: str):
-    job = JOBS.get(job_id) or {}
+async def dl_video(job_id: str):
+    job = job_read(job_id) or {}
     path = job.get("video_path") or str(OUTPUTS_DIR / "videos" / f"{job_id}.mp4")
     if not Path(path).exists():
         raise HTTPException(404, "Video not ready")
     return FileResponse(path, media_type="video/mp4",
                         filename=f"youtube_{job_id}.mp4")
 
-
 @app.get("/download/{job_id}/thumbnail")
-async def download_thumbnail(job_id: str):
-    job = JOBS.get(job_id) or {}
+async def dl_thumb(job_id: str):
+    job = job_read(job_id) or {}
     path = job.get("thumbnail_path") or str(OUTPUTS_DIR / "thumbnails" / f"{job_id}.jpg")
     if not Path(path).exists():
         raise HTTPException(404, "Thumbnail not ready")
     return FileResponse(path, media_type="image/jpeg",
                         filename=f"thumbnail_{job_id}.jpg")
 
-
 @app.get("/download/{job_id}/script")
-async def download_script(job_id: str):
+async def dl_script(job_id: str):
     path = OUTPUTS_DIR / "scripts" / f"{job_id}.json"
-    if not path.exists():
-        raise HTTPException(404, "Script not ready")
+    if not path.exists(): raise HTTPException(404, "Script not ready")
     return FileResponse(str(path), media_type="application/json",
                         filename=f"script_{job_id}.json")
 
-
 @app.get("/download/{job_id}/metadata")
-async def download_metadata(job_id: str):
+async def dl_meta(job_id: str):
     path = OUTPUTS_DIR / "metadata" / f"{job_id}.json"
-    if not path.exists():
-        raise HTTPException(404, "Metadata not ready")
+    if not path.exists(): raise HTTPException(404, "Metadata not ready")
     return FileResponse(str(path), media_type="application/json",
                         filename=f"metadata_{job_id}.json")
 
-
 @app.get("/")
 async def root():
-    return {
-        "name": "YouTube AI Agent API",
-        "version": "1.0.0",
-        "docs": "/docs",
-        "usage": {
-            "generate": "POST /generate {'topic': 'Future of AI'}",
-            "status":   "GET /status/{job_id}",
-            "approve":  "POST /approve/{job_id} {'approved': true}",
-            "download": "GET /download/{job_id}/video",
-        }
-    }
-
+    return {"name": "YouTube AI Agent API", "version": "1.0.0",
+            "docs": "/docs",
+            "usage": {
+                "generate": "POST /generate {'topic': 'Future of AI'}",
+                "status":   "GET /status/{job_id}",
+                "approve":  "POST /approve/{job_id} {'approved': true}",
+                "download": "GET /download/{job_id}/video",
+            }}
 
 if __name__ == "__main__":
-    import os, uvicorn
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=False)
+    import uvicorn
+    uvicorn.run("app:app", host="0.0.0.0",
+                port=int(os.environ.get("PORT", 8000)), reload=False)
