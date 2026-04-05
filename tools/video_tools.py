@@ -18,8 +18,44 @@ def _font(size, bold=False):
     k = (size, bold)
     if k not in _FC:
         name = "NotoSans-Bold.ttf" if bold else "NotoSans-Regular.ttf"
-        try:    _FC[k] = ImageFont.truetype(str(FONTS_DIR / name), size)
-        except: _FC[k] = ImageFont.load_default()
+        # 1. Bundled font (preferred)
+        bundled = FONTS_DIR / name
+        if bundled.exists():
+            try:
+                _FC[k] = ImageFont.truetype(str(bundled), size)
+                return _FC[k]
+            except Exception:
+                pass
+        # 2. System font paths
+        sys_bold = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        ]
+        sys_reg = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        ]
+        for p in (sys_bold if bold else sys_reg):
+            if os.path.exists(p):
+                try:
+                    _FC[k] = ImageFont.truetype(p, size)
+                    return _FC[k]
+                except Exception:
+                    pass
+        # 3. fc-match dynamic lookup
+        try:
+            pattern = "sans:bold" if bold else "sans"
+            out = subprocess.run(["fc-match", "--format=%{file}", pattern],
+                                 capture_output=True, text=True, timeout=3)
+            p = out.stdout.strip()
+            if out.returncode == 0 and p and os.path.exists(p):
+                _FC[k] = ImageFont.truetype(p, size)
+                return _FC[k]
+        except Exception:
+            pass
+        _FC[k] = ImageFont.load_default()
     return _FC[k]
 
 def _tw(draw_or_none, text, font):
@@ -207,7 +243,7 @@ def draw_subtitle_frame(frame_arr: np.ndarray, text: str,
                         progress: float, accent_color: tuple) -> np.ndarray:
     img  = Image.fromarray(frame_arr)
     draw = ImageDraw.Draw(img)
-    f    = _font(22)
+    f    = _font(12)
 
     words = text.split()
     if not words:
