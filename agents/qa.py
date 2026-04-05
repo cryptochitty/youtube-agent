@@ -59,14 +59,19 @@ def qa_agent(state: VideoState) -> VideoState:
         score -= 5
 
     # ── LLM content review ────────────────────────────────────────────────
-    full_script = script.get("full_script", "")[:1500]
+    full_script = script.get("full_script", "")[:500]
     if full_script:
-        llm_review = invoke_json(
-            f'Review this YouTube script for quality. Topic: "{topic}"\n\n'
-            f'Script excerpt:\n{full_script}\n\n'
-            'Return JSON: {"engagement_score": 0-10, "clarity_score": 0-10, '
-            '"issues": ["list of problems"], "suggestions": ["improvements"]}'
-        )
+        try:
+            llm_review = invoke_json(
+                f'Review this YouTube script. Topic: "{topic[:100]}"\n\n'
+                f'Excerpt:\n{full_script}\n\n'
+                'Return JSON: {"engagement_score": 0-10, "clarity_score": 0-10, '
+                '"issues": ["list of problems"], "suggestions": ["improvements"]}',
+                max_tokens=256,
+            )
+        except Exception as e:
+            logs.append(f"[QA] LLM review skipped: {e}")
+            llm_review = {}
         if llm_review:
             eng = llm_review.get("engagement_score", 7)
             clr = llm_review.get("clarity_score", 7)

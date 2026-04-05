@@ -7,17 +7,20 @@ import json, re, time, requests
 from config import LLM_PROVIDER, GROQ_API_KEY, GROQ_MODEL, OLLAMA_URL, OLLAMA_MODEL
 
 
-def invoke_llm(prompt: str, system: str = "", _attempt: int = 0) -> str:
+def invoke_llm(prompt: str, system: str = "", _attempt: int = 0,
+               max_tokens: int = 4096) -> str:
     """Call LLM and return text response. Auto-retries on 429 with backoff."""
     try:
         if LLM_PROVIDER == "groq" and GROQ_API_KEY:
-            return _groq(prompt, system)
+            return _groq(prompt, system, max_tokens)
         if LLM_PROVIDER in ("ollama", "groq"):
             return _ollama(prompt, system)
         if LLM_PROVIDER == "openai":
-            return _openai(prompt, system)
+            return _openai(prompt, system, max_tokens)
         return _stub(prompt)
     except requests.exceptions.HTTPError as e:
+        if e.response is not None and e.response.status_code == 413:
+            raise  # payload too large — caller must reduce input
         if e.response is not None and e.response.status_code == 429 and _attempt < 5:
             # Respect retry-after header if present, else use exponential backoff
             retry_after = e.response.headers.get("retry-after") or e.response.headers.get("x-ratelimit-reset-requests")
@@ -32,12 +35,14 @@ def invoke_llm(prompt: str, system: str = "", _attempt: int = 0) -> str:
         raise
 
 
-def invoke_json(prompt: str, system: str = "", retries: int = 2) -> dict:
+def invoke_json(prompt: str, system: str = "", retries: int = 2,
+                max_tokens: int = 4096) -> dict:
     """Call LLM, parse and return JSON dict."""
     for attempt in range(retries + 1):
         raw = invoke_llm(
             prompt + "\n\nRespond ONLY with valid JSON. No markdown, no explanation.",
-            system
+            system,
+            max_tokens=max_tokens,
         )
         raw = re.sub(r"```(?:json)?\s*", "", raw).strip().rstrip("`").strip()
         try:
@@ -58,7 +63,7 @@ def invoke_json(prompt: str, system: str = "", retries: int = 2) -> dict:
 # ── Groq (free tier — llama3, mixtral) ───────────────────────────────────────
 _last_groq_call = 0.0
 
-def _groq(prompt: str, system: str) -> str:
+def _groq(prompt: str, system: str, max_tokens: int = 4096) -> str:
     global _last_groq_call
     # Throttle: minimum 3s between Groq calls to stay under rate limits
     elapsed = time.time() - _last_groq_call
@@ -76,7 +81,7 @@ def _groq(prompt: str, system: str) -> str:
         headers={"Authorization": f"Bearer {GROQ_API_KEY}",
                  "Content-Type": "application/json"},
         json={"model": GROQ_MODEL, "messages": messages,
-              "temperature": 0.7, "max_tokens": 4096},
+              "temperature": 0.7, "max_tokens": max_tokens},
         timeout=60,
     )
     r.raise_for_status()
@@ -100,7 +105,7 @@ def _ollama(prompt: str, system: str) -> str:
 
 
 # ── OpenAI ────────────────────────────────────────────────────────────────────
-def _openai(prompt: str, system: str) -> str:
+def _openai(prompt: str, system: str, max_tokens: int = 4096) -> str:
     from config import OPENAI_KEY, OPENAI_MODEL
     messages = []
     if system:
@@ -112,7 +117,7 @@ def _openai(prompt: str, system: str) -> str:
         headers={"Authorization": f"Bearer {OPENAI_KEY}",
                  "Content-Type": "application/json"},
         json={"model": OPENAI_MODEL, "messages": messages,
-              "temperature": 0.7, "max_tokens": 4096},
+              "temperature": 0.7, "max_tokens": max_tokens},
         timeout=60,
     )
     r.raise_for_status()
