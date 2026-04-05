@@ -39,9 +39,9 @@ def _overlay_bullets(img: Image.Image, bullets: list, progress: float,
     draw = ImageDraw.Draw(img)
 
     n_vis = max(1, math.ceil(len(bullets) * min(progress * 1.6, 1.0)))
-    bf    = _font(28)
-    sf    = _font(20)
-    LH    = 48
+    bf    = _font(22)
+    sf    = _font(17)
+    LH    = 40
     CT, CB = 96, H - 22
     total_h = min(n_vis, len(bullets)) * LH
     sy = CT + max(0, (CB - CT - total_h) // 2)
@@ -73,10 +73,10 @@ def _overlay_bullets(img: Image.Image, bullets: list, progress: float,
         draw.ellipse([bx-3, bd-3, bx+3, bd+3], fill=scol)
 
         # Text (shadow + main)
-        bl = textwrap.wrap(bullet, 50)[:2]
+        bl = textwrap.wrap(bullet, 40)[:2]
         for j, bline in enumerate(bl):
             font = bf if j == 0 else sf
-            ty   = by + j * 26
+            ty   = by + j * 20
             draw.text((40, ty+1), bline, font=font, fill=scol)
             draw.text((39, ty),   bline, font=font, fill=tcol)
 
@@ -99,10 +99,10 @@ def _overlay_counter(img: Image.Image, value_str: str, progress: float,
     display = f"{current}{suffix}"
 
     acc = tuple(int(c) for c in accent)
-    nf  = _font(100, bold=True)
+    nf  = _font(72, bold=True)
     nw  = _tw(None, display, nf)
     nx  = (W - nw) // 2
-    ny  = H // 2 - 76
+    ny  = H // 2 - 58
 
     draw.text((nx+3, ny+3), display, font=nf, fill=(0,0,0))
     draw.text((nx+1, ny+1), display, font=nf,
@@ -180,16 +180,16 @@ def _overlay_quote(img: Image.Image, text: str, progress: float,
     shown   = " ".join(words[:n_shown])
 
     acc = tuple(int(c) for c in accent)
-    qf  = _font(34)
-    lines   = textwrap.wrap(shown, 42)[:5]
-    total_h = len(lines) * 48
+    qf  = _font(26)
+    lines   = textwrap.wrap(shown, 50)[:5]
+    total_h = len(lines) * 38
     ty      = (H - total_h) // 2 - 10
 
     for line in lines:
         lw = _tw(None, line, qf)
         draw.text(((W-lw)//2+2, ty+2), line, font=qf, fill=(0,0,0))
         draw.text(((W-lw)//2,   ty),   line, font=qf, fill=(232, 238, 255))
-        ty += 48
+        ty += 38
 
     # Closing quote fades in at end
     if progress > 0.75:
@@ -207,7 +207,7 @@ def draw_subtitle_frame(frame_arr: np.ndarray, text: str,
                         progress: float, accent_color: tuple) -> np.ndarray:
     img  = Image.fromarray(frame_arr)
     draw = ImageDraw.Draw(img)
-    f    = _font(26)
+    f    = _font(22)
 
     words = text.split()
     if not words:
@@ -215,11 +215,11 @@ def draw_subtitle_frame(frame_arr: np.ndarray, text: str,
 
     n_shown = max(1, int(len(words) * min(progress * 1.3, 1.0)))
     visible = " ".join(words[:n_shown])
-    lines   = textwrap.wrap(visible, 68)[:2]
+    lines   = textwrap.wrap(visible, 48)[:2]
     if not lines:
         return np.array(img)
 
-    LH, PAD = 34, 8
+    LH, PAD = 28, 7
     bh = len(lines) * LH + PAD * 2
     y1 = H - bh - 10
 

@@ -97,14 +97,14 @@ def _draw_header(draw, palette, title: str, section_num: int) -> int:
     nw = _tw(draw, ns, nf)
     draw.text((bx-nw//2, by-13), ns, font=nf, fill=(0,0,0))
 
-    tf = _font(42, bold=True)
+    tf = _font(34, bold=True)
     ty = 12
-    for line in textwrap.wrap(title, 30)[:2]:
+    for line in textwrap.wrap(title, 24)[:2]:
         draw.text((70, ty+1), line, font=tf, fill=(0,0,0))
         draw.text((69, ty),   line, font=tf, fill=text_c)
-        ty += 50
+        ty += 42
 
-    div_y = max(76, ty + 2)
+    div_y = max(72, ty + 2)
     draw.rectangle([14, div_y, W-14, div_y+2],
                    fill=tuple(int(c*0.35) for c in acc))
     return div_y + 8
@@ -126,27 +126,27 @@ def _shell_intro(draw, palette, topic: str, subtitle: str):
     draw.text((18, 10), "AI VIDEO", font=_font(16, bold=True), fill=(0,0,0))
 
     # Topic title
-    tf     = _font(60, bold=True)
-    lines  = textwrap.wrap(topic.upper(), 20)[:2]
-    total_h = len(lines) * 72
-    ty     = (H - total_h) // 2 - 15
+    tf     = _font(46, bold=True)
+    lines  = textwrap.wrap(topic.upper(), 16)[:2]
+    total_h = len(lines) * 56
+    ty     = (H - total_h) // 2 - 20
     for i, line in enumerate(lines):
         lw = _tw(draw, line, tf)
         x  = (W - lw) // 2
         draw.text((x+3, ty+3), line, font=tf, fill=(0,0,0))
         draw.text((x,   ty),   line, font=tf,
                   fill=acc if i == 0 else text_c)
-        ty += 72
+        ty += 56
 
     # Underline
-    draw.rectangle([(W-240)//2, ty+4, (W+240)//2, ty+8], fill=acc2)
+    draw.rectangle([(W-220)//2, ty+4, (W+220)//2, ty+7], fill=acc2)
 
     # Subtitle
     if subtitle:
-        sf = _font(24)
-        for j, sl in enumerate(textwrap.wrap(subtitle, 58)[:2]):
+        sf = _font(20)
+        for j, sl in enumerate(textwrap.wrap(subtitle, 46)[:2]):
             slw = _tw(draw, sl, sf)
-            draw.text(((W-slw)//2, ty+16+j*30), sl, font=sf,
+            draw.text(((W-slw)//2, ty+14+j*26), sl, font=sf,
                       fill=tuple(int(c*0.68) for c in text_c))
 
     # Bottom strip
@@ -173,18 +173,18 @@ def _shell_stat(draw, palette, label: str, title: str):
                      fill=tuple(int(c*a) for c in acc))
 
     # Title
-    tf = _font(34, bold=True)
-    ty = 18
-    for line in textwrap.wrap(title, 38)[:2]:
+    tf = _font(28, bold=True)
+    ty = 16
+    for line in textwrap.wrap(title, 30)[:2]:
         lw = _tw(draw, line, tf)
         draw.text(((W-lw)//2, ty), line, font=tf, fill=text_c)
-        ty += 40
+        ty += 34
 
     # Label (static)
     if label:
-        lf = _font(26)
-        ly = H//2 + 76
-        for line in textwrap.wrap(label[:80], 44)[:2]:
+        lf = _font(22)
+        ly = H//2 + 72
+        for line in textwrap.wrap(label[:80], 40)[:2]:
             lw = _tw(draw, line, lf)
             draw.text(((W-lw)//2, ly), line, font=lf,
                       fill=tuple(int(c*0.72) for c in text_c))
