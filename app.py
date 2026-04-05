@@ -95,22 +95,29 @@ def _parse_uploaded_script(path: str) -> dict:
     return {"sections": sections, "hook": "", "intro": "", "cta": ""}
 
 
+def _audio_duration(path: str) -> float:
+    """Get audio duration using ffprobe (bundled with imageio-ffmpeg)."""
+    try:
+        import subprocess, imageio_ffmpeg
+        ffprobe = imageio_ffmpeg.get_ffmpeg_exe().replace("ffmpeg", "ffprobe")
+        result  = subprocess.run(
+            [ffprobe, "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", path],
+            capture_output=True, text=True, timeout=10)
+        return float(result.stdout.strip())
+    except Exception:
+        return 5.0
+
+
 def _apply_custom_audio(state: dict, audio_paths: list) -> dict:
     """Map uploaded audio files to script sections."""
-    import mutagen.mp3, contextlib
     sections = state.get("script", {}).get("sections", [])
     audio_files = []
     total_dur   = 0.0
     for i, section in enumerate(sections):
         if i < len(audio_paths):
             ap  = audio_paths[i]
-            dur = 5.0
-            try:
-                with contextlib.suppress(Exception):
-                    from mutagen.mp3 import MP3
-                    dur = MP3(ap).info.length
-            except Exception:
-                pass
+            dur = _audio_duration(ap)
             section["audio_path"]     = ap
             section["audio_duration"] = dur
             total_dur += dur
