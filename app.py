@@ -66,32 +66,82 @@ class ApproveRequest(BaseModel):
 
 
 # ── Custom asset helpers ───────────────────────────────────────────────────────
+_MAX_SECTION_CHARS = 600   # ~60 seconds of speech at average reading speed
+
+
+def _split_into_chunks(text: str, max_chars: int = _MAX_SECTION_CHARS) -> list[str]:
+    """Split long text into chunks ≤ max_chars, breaking at sentence boundaries."""
+    import re
+    if len(text) <= max_chars:
+        return [text]
+    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+    chunks, current = [], ""
+    for sent in sentences:
+        if len(current) + len(sent) + 1 <= max_chars:
+            current = (current + " " + sent).strip()
+        else:
+            if current:
+                chunks.append(current)
+            # Single sentence longer than limit — hard split by words
+            if len(sent) > max_chars:
+                words = sent.split()
+                current = ""
+                for w in words:
+                    if len(current) + len(w) + 1 <= max_chars:
+                        current = (current + " " + w).strip()
+                    else:
+                        if current:
+                            chunks.append(current)
+                        current = w
+            else:
+                current = sent
+    if current:
+        chunks.append(current)
+    return chunks or [text[:max_chars]]
+
+
 def _parse_uploaded_script(path: str) -> dict:
     """Parse uploaded script file (JSON or plain text) into pipeline script format."""
     text = Path(path).read_text(encoding="utf-8", errors="replace")
     try:
         data = json.loads(text)
         if isinstance(data, dict) and "sections" in data:
-            # Ensure each section has required fields
-            for s in data["sections"]:
-                s.setdefault("title",       s.get("title", "Section"))
+            # Ensure each section has required fields, split long content
+            expanded = []
+            for i, s in enumerate(data["sections"]):
+                s.setdefault("title",       s.get("title", f"Section {i+1}"))
                 s.setdefault("content",     s.get("content", ""))
                 s.setdefault("visual_cue",  "")
                 s.setdefault("key_takeaway","")
+                chunks = _split_into_chunks(s["content"])
+                if len(chunks) == 1:
+                    expanded.append(s)
+                else:
+                    for j, chunk in enumerate(chunks):
+                        expanded.append({**s, "title": f"{s['title']} ({j+1})",
+                                         "content": chunk,
+                                         "key_takeaway": chunk[:60]})
+            data["sections"] = expanded[:20]
             return data
     except (json.JSONDecodeError, ValueError):
         pass
-    # Plain text → split paragraphs into sections
+    # Plain text → split paragraphs into sections, chunk long ones
     paras = [p.strip() for p in text.replace("\r\n", "\n").split("\n\n") if p.strip()]
     if not paras:
         paras = [p.strip() for p in text.splitlines() if p.strip()]
     sections = []
-    for i, para in enumerate(paras[:12]):
-        lines = para.splitlines()
+    for i, para in enumerate(paras[:20]):
+        lines   = para.splitlines()
         title   = lines[0][:60] if len(lines) > 1 else f"Section {i+1}"
         content = para if len(lines) == 1 else "\n".join(lines[1:]).strip() or para
-        sections.append({"title": title, "content": content,
-                         "visual_cue": "", "key_takeaway": content[:60]})
+        for j, chunk in enumerate(_split_into_chunks(content)):
+            label = title if j == 0 else f"{title} ({j+1})"
+            sections.append({"title": label, "content": chunk,
+                              "visual_cue": "", "key_takeaway": chunk[:60]})
+            if len(sections) >= 20:
+                break
+        if len(sections) >= 20:
+            break
     return {"sections": sections, "hook": "", "intro": "", "cta": ""}
 
 

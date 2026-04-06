@@ -19,7 +19,7 @@ def voice_agent(state: VideoState) -> VideoState:
     audio_dir.mkdir(parents=True, exist_ok=True)
 
     for i, section in enumerate(sections):
-        text = section.get("content", "").strip()
+        text = section.get("content", "").strip()[:600]   # hard cap: ~60s of speech
         if not text:
             continue
         out_path = str(audio_dir / f"section_{i:02d}.mp3")
