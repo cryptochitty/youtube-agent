@@ -226,6 +226,7 @@ def _run_job(job_id: str, topic: str, language: str, style: str, audience: str,
             "video_path": "", "thumbnail_path": "", "metadata": {},
             "qa_report": {}, "human_approved": False,
             "current_agent": "research", "errors": [], "logs": [], "status": "running",
+            "_log_cb": lambda msg: job_log(job_id, msg),
         }
 
         # ── Apply custom assets & determine skips ─────────────────────────────

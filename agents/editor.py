@@ -53,11 +53,23 @@ def editor_agent(state: VideoState) -> VideoState:
     out_path = str(OUTPUTS_DIR / "videos" / f"{job_id}.mp4")
     accent_colors = [palette["accent"], palette["accent2"]] * 10
 
+    total_scenes = len(assembled_scenes)
+
+    def _progress(idx: int, msg: str):
+        """Called by assemble_video after each scene clip is done."""
+        entry = f"[Editor] Scene {idx+1}/{total_scenes} done — {msg}"
+        logs.append(entry)
+        # Persist log immediately so UI shows progress
+        log_cb = state.get("_log_cb")
+        if callable(log_cb):
+            log_cb(entry)
+
     try:
         assemble_video(
-            scenes       = assembled_scenes,
-            out_path     = out_path,
+            scenes        = assembled_scenes,
+            out_path      = out_path,
             accent_colors = accent_colors,
+            progress_cb   = _progress,
         )
         logs.append(f"[Editor] Video saved: {out_path}")
     except Exception as e:

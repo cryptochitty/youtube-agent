@@ -564,7 +564,8 @@ def _render_scene_python_pipe(scene: dict, clip_path: str, accent_color: tuple,
 
 
 # ── Assemble final video ──────────────────────────────────────────────────────
-def assemble_video(scenes: list, out_path: str, accent_colors: list) -> str:
+def assemble_video(scenes: list, out_path: str, accent_colors: list,
+                   progress_cb=None) -> str:
     import imageio_ffmpeg as _iiff
     ffmpeg_exe   = _iiff.get_ffmpeg_exe()
     total_frames = sum(max(1, int(s["duration"] * FPS)) for s in scenes)
@@ -580,17 +581,19 @@ def assemble_video(scenes: list, out_path: str, accent_colors: list) -> str:
         anim_type = (scene.get("anim_data") or {}).get("type", "none")
 
         if anim_type == "none":
-            # Fast path: no Python frame loop — ffmpeg handles zoom/fade/subtitle
             _render_scene_ffmpeg(scene, clip_path, acc, frame_cursor,
                                  total_frames, idx % 2 == 0, ffmpeg_exe)
         else:
-            # Animated path: Python renderer → ffmpeg pipe
             _render_scene_python_pipe(scene, clip_path, acc, frame_cursor,
                                       total_frames, idx % 2 == 0, ffmpeg_exe)
 
         clip_files.append(clip_path)
         frame_cursor += n_frames
-        print(f"[Editor] Scene {idx+1}/{len(scenes)} done")
+        dur_s = int(scene["duration"])
+        msg   = f"{dur_s}s • {anim_type}"
+        print(f"[Editor] Scene {idx+1}/{len(scenes)} done — {msg}")
+        if callable(progress_cb):
+            progress_cb(idx, msg)
 
     # Concatenate scene clips
     silent_path  = out_path.replace(".mp4", "_silent.mp4")
