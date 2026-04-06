@@ -67,6 +67,58 @@ def _font_latin(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
             _FC[k] = ImageFont.load_default()
     return _FC[k]
 
+
+def _run_width(draw, text, font):
+    try:    return int(font.getlength(text))
+    except: bb = draw.textbbox((0, 0), text, font=font); return bb[2] - bb[0]
+
+
+def _draw_line_mixed(draw, xy, text, size, bold, fill, shadow=None):
+    """Render one line of text, switching between Latin and script fonts per character run.
+    Fixes boxes when English words appear inside Tamil/Hindi/etc. content."""
+    if _ACTIVE_SCRIPT == "latin":
+        f = _font(size, bold)
+        if shadow:
+            draw.text((xy[0]+1, xy[1]+1), text, font=f, fill=shadow)
+        draw.text(xy, text, font=f, fill=fill)
+        return
+
+    latin_f  = _font_latin(size, bold)
+    script_f = _font(size, bold)
+    x, y = xy
+
+    i = 0
+    while i < len(text):
+        is_latin = ord(text[i]) < 256
+        j = i + 1
+        while j < len(text) and (ord(text[j]) < 256) == is_latin:
+            j += 1
+        run  = text[i:j]
+        font = latin_f if is_latin else script_f
+        if shadow:
+            draw.text((x+1, y+1), run, font=font, fill=shadow)
+        draw.text((x, y), run, font=font, fill=fill)
+        x += _run_width(draw, run, font)
+        i  = j
+
+
+def _mixed_line_width(draw, text, size, bold):
+    """Measure the pixel width of a mixed-script line."""
+    if _ACTIVE_SCRIPT == "latin":
+        return _run_width(draw, text, _font(size, bold))
+    latin_f  = _font_latin(size, bold)
+    script_f = _font(size, bold)
+    w = 0
+    i = 0
+    while i < len(text):
+        is_latin = ord(text[i]) < 256
+        j = i + 1
+        while j < len(text) and (ord(text[j]) < 256) == is_latin:
+            j += 1
+        w += _run_width(draw, text[i:j], latin_f if is_latin else script_f)
+        i  = j
+    return w
+
 def _tw(draw, text, font):
     try:    return int(font.getlength(text))
     except: bb = draw.textbbox((0,0), text, font=font); return bb[2]-bb[0]
@@ -145,11 +197,9 @@ def _draw_header(draw, palette, title: str, section_num: int) -> int:
     nw = _tw(draw, ns, nf)
     draw.text((bx-nw//2, by-13), ns, font=nf, fill=(0,0,0))
 
-    tf = _font(34, bold=True)
     ty = 12
     for line in textwrap.wrap(title, 24)[:2]:
-        draw.text((70, ty+1), line, font=tf, fill=(0,0,0))
-        draw.text((69, ty),   line, font=tf, fill=text_c)
+        _draw_line_mixed(draw, (70, ty), line, 34, True, text_c, shadow=(0,0,0))
         ty += 42
 
     div_y = max(72, ty + 2)
@@ -191,13 +241,12 @@ def _shell_intro(draw, palette, topic: str, subtitle: str):
     # Underline
     draw.rectangle([(W-220)//2, ty+4, (W+220)//2, ty+7], fill=acc2)
 
-    # Subtitle — content text, use script-aware font
+    # Subtitle — mixed-script content
     if subtitle:
-        sf = _font(20)
         for j, sl in enumerate(textwrap.wrap(subtitle, 46)[:2]):
-            slw = _tw(draw, sl, sf)
-            draw.text(((W-slw)//2, ty+14+j*26), sl, font=sf,
-                      fill=tuple(int(c*0.68) for c in text_c))
+            slw = _mixed_line_width(draw, sl, 20, False)
+            _draw_line_mixed(draw, ((W-slw)//2, ty+14+j*26), sl, 20, False,
+                             tuple(int(c*0.68) for c in text_c))
 
     # Bottom strip — always Latin
     draw.rectangle([0, H-40, W, H-3], fill=tuple(int(c*0.22) for c in acc))
@@ -225,21 +274,19 @@ def _shell_stat(draw, palette, label: str, title: str):
                      fill=tuple(int(c*a) for c in acc))
 
     # Title
-    tf = _font(28, bold=True)
     ty = 16
     for line in textwrap.wrap(title, 30)[:2]:
-        lw = _tw(draw, line, tf)
-        draw.text(((W-lw)//2, ty), line, font=tf, fill=text_c)
+        lw = _mixed_line_width(draw, line, 28, True)
+        _draw_line_mixed(draw, ((W-lw)//2, ty), line, 28, True, text_c)
         ty += 34
 
     # Label (static)
     if label:
-        lf = _font(22)
         ly = H//2 + 72
         for line in textwrap.wrap(label[:80], 40)[:2]:
-            lw = _tw(draw, line, lf)
-            draw.text(((W-lw)//2, ly), line, font=lf,
-                      fill=tuple(int(c*0.72) for c in text_c))
+            lw = _mixed_line_width(draw, line, 22, False)
+            _draw_line_mixed(draw, ((W-lw)//2, ly), line, 22, False,
+                             tuple(int(c*0.72) for c in text_c))
             ly += 34
 
 
@@ -253,8 +300,8 @@ def _shell_quote(draw, palette, title: str, idx: int):
               fill=tuple(int(c*0.07) for c in acc))
 
     # Topic label
-    draw.text((18, 14), f"  {title[:52]}", font=_font(20),
-              fill=tuple(int(c*0.50) for c in text_c))
+    _draw_line_mixed(draw, (18, 14), f"  {title[:52]}", 20, False,
+                     tuple(int(c*0.50) for c in text_c))
 
     # Subtle content panel
     draw.rounded_rectangle([28, 76, W-28, H-46], radius=6,
@@ -277,14 +324,14 @@ def _shell_chart(draw, palette, title: str, idx: int, labels: list):
     draw.line([(CL, CB), (CR, CB)], fill=tuple(int(c*0.4) for c in text_c), width=2)
 
     # X labels
-    lf = _font(16)
     if labels:
         bw = (CR - CL) / len(labels)
         for i, label in enumerate(labels[:8]):
-            bx = CL + (i + 0.5) * bw
-            lw = _tw(draw, label[:8], lf)
-            draw.text((int(bx-lw//2), CB+4), label[:8], font=lf,
-                      fill=tuple(int(c*0.55) for c in text_c))
+            bx  = CL + (i + 0.5) * bw
+            lbl = label[:8]
+            lw  = _mixed_line_width(draw, lbl, 16, False)
+            _draw_line_mixed(draw, (int(bx-lw//2), CB+4), lbl, 16, False,
+                             tuple(int(c*0.55) for c in text_c))
 
     # Grid lines
     for pct in [0.25, 0.50, 0.75, 1.0]:
@@ -301,7 +348,7 @@ def _shell_cta(draw, palette):
         draw.ellipse([W//2-r, H//2-r, W//2+r, H//2+r],
                      fill=tuple(int(c*a) for c in acc))
 
-    tf = _font(52, bold=True)
+    tf = _font_latin(52, bold=True)
     for i, line in enumerate(["THANKS FOR", "WATCHING!"]):
         lw = _tw(draw, line, tf)
         draw.text(((W-lw)//2+2, H//2-64+i*62+2), line, font=tf, fill=(0,0,0))
@@ -309,7 +356,7 @@ def _shell_cta(draw, palette):
 
     draw.rectangle([0, H-52, W, H-3], fill=tuple(int(c*0.25) for c in acc))
     prompt = "  Like   |   Subscribe   |   Comment  "
-    pf = _font(22)
+    pf = _font_latin(22)
     pw = _tw(draw, prompt, pf)
     draw.text(((W-pw)//2, H-42), prompt, font=pf, fill=acc)
 

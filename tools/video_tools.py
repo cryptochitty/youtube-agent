@@ -114,6 +114,56 @@ def _font_latin(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
         _FC[k] = ImageFont.load_default()
     return _FC[k]
 
+
+def _rw(draw_or_none, text, font):
+    try:    return int(font.getlength(text))
+    except:
+        dummy = ImageDraw.Draw(Image.new("RGB", (1,1)))
+        bb = dummy.textbbox((0,0), text, font=font)
+        return bb[2] - bb[0]
+
+
+def _draw_line_mixed(draw, xy, text, size, bold, fill, shadow=None):
+    """Render one text line switching Latin/script font per character run."""
+    if _ACTIVE_SCRIPT == "latin":
+        f = _font(size, bold)
+        if shadow:
+            draw.text((xy[0]+1, xy[1]+1), text, font=f, fill=shadow)
+        draw.text(xy, text, font=f, fill=fill)
+        return
+    latin_f  = _font_latin(size, bold)
+    script_f = _font(size, bold)
+    x, y = xy
+    i = 0
+    while i < len(text):
+        is_latin = ord(text[i]) < 256
+        j = i + 1
+        while j < len(text) and (ord(text[j]) < 256) == is_latin:
+            j += 1
+        run  = text[i:j]
+        font = latin_f if is_latin else script_f
+        if shadow:
+            draw.text((x+1, y+1), run, font=font, fill=shadow)
+        draw.text((x, y), run, font=font, fill=fill)
+        x += _rw(draw, run, font)
+        i  = j
+
+
+def _mixed_width(draw, text, size, bold):
+    if _ACTIVE_SCRIPT == "latin":
+        return _rw(draw, text, _font(size, bold))
+    latin_f  = _font_latin(size, bold)
+    script_f = _font(size, bold)
+    w, i = 0, 0
+    while i < len(text):
+        is_latin = ord(text[i]) < 256
+        j = i + 1
+        while j < len(text) and (ord(text[j]) < 256) == is_latin:
+            j += 1
+        w += _rw(draw, text[i:j], latin_f if is_latin else script_f)
+        i  = j
+    return w
+
 def _tw(draw_or_none, text, font):
     try:    return int(font.getlength(text))
     except:
@@ -165,13 +215,12 @@ def _overlay_bullets(img: Image.Image, bullets: list, progress: float,
         draw.ellipse([bx-6, bd-6, bx+6, bd+6], fill=fcol)
         draw.ellipse([bx-3, bd-3, bx+3, bd+3], fill=scol)
 
-        # Text (shadow + main)
+        # Text (shadow + main) — mixed script support
         bl = textwrap.wrap(bullet, 40)[:2]
         for j, bline in enumerate(bl):
-            font = bf if j == 0 else sf
+            size = 22 if j == 0 else 17
             ty   = by + j * 20
-            draw.text((40, ty+1), bline, font=font, fill=scol)
-            draw.text((39, ty),   bline, font=font, fill=tcol)
+            _draw_line_mixed(draw, (39, ty), bline, size, False, tcol, shadow=scol)
 
     return img
 
@@ -323,8 +372,7 @@ def draw_subtitle_frame(frame_arr: np.ndarray, text: str,
 
     for i, line in enumerate(lines):
         ty = y1 + PAD + i * LH
-        draw.text((16, ty+2), line, font=f, fill=(0,0,0))
-        draw.text((15, ty),   line, font=f, fill=(238, 243, 255))
+        _draw_line_mixed(draw, (15, ty), line, 12, False, (238, 243, 255), shadow=(0,0,0))
 
     return np.array(img)
 
@@ -435,8 +483,7 @@ def _render_subtitle_png(text: str, accent_color: tuple, out_path: str):
     draw.rounded_rectangle([6, y1, 10, H-10],  radius=4, fill=acc + (255,))
     for i, line in enumerate(lines):
         ty = y1 + PAD + i * LH
-        draw.text((16, ty+2), line, font=f, fill=(0, 0, 0, 200))
-        draw.text((15, ty),   line, font=f, fill=(238, 243, 255, 255))
+        _draw_line_mixed(draw, (15, ty), line, 12, False, (238, 243, 255, 255), shadow=(0, 0, 0, 200))
     img.save(out_path, "PNG")
 
 
