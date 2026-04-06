@@ -56,6 +56,17 @@ def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
                 _FC[k] = ImageFont.load_default()
     return _FC[k]
 
+def _font_latin(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
+    """Always returns a Latin (NotoSans) font — use for English UI strings."""
+    k = ("latin", size, bold)
+    if k not in _FC:
+        fname = "NotoSans-Bold.ttf" if bold else "NotoSans-Regular.ttf"
+        try:
+            _FC[k] = ImageFont.truetype(str(FONTS_DIR / fname), size)
+        except Exception:
+            _FC[k] = ImageFont.load_default()
+    return _FC[k]
+
 def _tw(draw, text, font):
     try:    return int(font.getlength(text))
     except: bb = draw.textbbox((0,0), text, font=font); return bb[2]-bb[0]
@@ -160,12 +171,12 @@ def _shell_intro(draw, palette, topic: str, subtitle: str):
         col = tuple(int(c*a) for c in acc)
         draw.ellipse([W//2-r, H//2-r-15, W//2+r, H//2+r-15], fill=col)
 
-    # Channel badge
+    # Channel badge — always Latin
     draw.rounded_rectangle([10, 8, 118, 32], radius=4, fill=acc2)
-    draw.text((18, 10), "AI VIDEO", font=_font(16, bold=True), fill=(0,0,0))
+    draw.text((18, 10), "AI VIDEO", font=_font_latin(16, bold=True), fill=(0,0,0))
 
-    # Topic title
-    tf     = _font(46, bold=True)
+    # Topic title — topic is always English, use Latin font
+    tf     = _font_latin(46, bold=True)
     lines  = textwrap.wrap(topic.upper(), 16)[:2]
     total_h = len(lines) * 56
     ty     = (H - total_h) // 2 - 20
@@ -180,7 +191,7 @@ def _shell_intro(draw, palette, topic: str, subtitle: str):
     # Underline
     draw.rectangle([(W-220)//2, ty+4, (W+220)//2, ty+7], fill=acc2)
 
-    # Subtitle
+    # Subtitle — content text, use script-aware font
     if subtitle:
         sf = _font(20)
         for j, sl in enumerate(textwrap.wrap(subtitle, 46)[:2]):
@@ -188,9 +199,9 @@ def _shell_intro(draw, palette, topic: str, subtitle: str):
             draw.text(((W-slw)//2, ty+14+j*26), sl, font=sf,
                       fill=tuple(int(c*0.68) for c in text_c))
 
-    # Bottom strip
+    # Bottom strip — always Latin
     draw.rectangle([0, H-40, W, H-3], fill=tuple(int(c*0.22) for c in acc))
-    draw.text((16, H-32), "▶  WATCH NOW", font=_font(20), fill=acc)
+    draw.text((16, H-32), "▶  WATCH NOW", font=_font_latin(20), fill=acc)
 
 
 def _shell_section(draw, palette, title: str, idx: int):
@@ -443,13 +454,14 @@ def generate_thumbnail(topic: str, title: str, out_path: str) -> str:
         col = tuple(int(c*a) for c in acc)
         draw.ellipse([W//2-r, H//2-r+25, W//2+r, H//2+r+25], fill=col)
 
-    # "NEW" badge
+    # "NEW" badge — always Latin
     draw.rounded_rectangle([10, 8, 96, 32], radius=4, fill=acc2)
-    draw.text((18, 10), "NEW VIDEO", font=_font(16, bold=True), fill=(0,0,0))
+    draw.text((18, 10), "NEW VIDEO", font=_font_latin(16, bold=True), fill=(0,0,0))
 
-    # Title
+    # Title — thumb_title comes from metadata (may be LLM-generated in target language)
+    # topic is always English, use Latin font
     title_lines = textwrap.wrap(title.upper(), 16)[:3]
-    tf = _font(68, bold=True)
+    tf = _font_latin(68, bold=True)
     ty = H//2 - len(title_lines) * 42 - 8
     for i, line in enumerate(title_lines):
         lw = _tw(draw, line, tf)
@@ -466,7 +478,7 @@ def generate_thumbnail(topic: str, title: str, out_path: str) -> str:
 
     # Bottom strip
     draw.rectangle([0, H-42, W, H-3], fill=tuple(int(c*0.28) for c in acc))
-    draw.text((14, H-34), f"▶  {topic[:55]}", font=_font(20), fill=text_c)
+    draw.text((14, H-34), f"▶  {topic[:55]}", font=_font_latin(20), fill=text_c)
 
     img.save(out_path, "JPEG", quality=95)
     return out_path

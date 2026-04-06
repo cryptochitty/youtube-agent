@@ -99,6 +99,21 @@ def _font(size, bold=False):
         _FC[k] = ImageFont.load_default()
     return _FC[k]
 
+def _font_latin(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
+    """Always returns a Latin (NotoSans) font — use for English UI strings."""
+    k = ("latin", size, bold)
+    if k not in _FC:
+        fname = "NotoSans-Bold.ttf" if bold else "NotoSans-Regular.ttf"
+        bundled = FONTS_DIR / fname
+        if bundled.exists():
+            try:
+                _FC[k] = ImageFont.truetype(str(bundled), size)
+                return _FC[k]
+            except Exception:
+                pass
+        _FC[k] = ImageFont.load_default()
+    return _FC[k]
+
 def _tw(draw_or_none, text, font):
     try:    return int(font.getlength(text))
     except:
