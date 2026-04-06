@@ -38,8 +38,8 @@ Write a complete, engaging YouTube script. Return JSON with this structure:
   "sections": [
     {{
       "title": "Section title",
-      "content": "Full narration text for this section (2-4 sentences, conversational)",
-      "visual_cue": "Description of visual to show (for image generation)",
+      "content": "Full narration text for this section (2-3 sentences max, conversational, 40-60 words)",
+      "visual_cue": "Description of visual to show (for image generation, in English)",
       "key_takeaway": "One-line takeaway"
     }}
   ],
@@ -48,13 +48,14 @@ Write a complete, engaging YouTube script. Return JSON with this structure:
 }}
 
 Requirements:
-- Write in {language} language
-- Use conversational, engaging language (not academic)
+- ENTIRE script (hook, intro, all sections, cta) MUST be written in {language} — do NOT write in English and translate
+- Use conversational, engaging language native to {language} speakers
 - Include storytelling and real examples
-- Each section should be 30-60 seconds when spoken
+- Each section content: MAXIMUM 3 sentences, MAXIMUM 60 words
+- Hook: 1-2 sentences only
 - Create 4-5 main sections
-- Hook must be dramatic and attention-grabbing
-- CTA must feel genuine, not salesy"""
+- CTA must feel genuine, not salesy
+- visual_cue fields are always in English (used for image generation)"""
 
     script = invoke_json(prompt, max_tokens=2048)
 

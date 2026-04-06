@@ -222,11 +222,6 @@ def _run_job(job_id: str, topic: str, language: str, style: str, audience: str,
             if agent_name in skip:
                 continue
 
-            # After script_writer runs (generated script), inject pending audio/images
-            if agent_name == "script_writer":
-                pass  # injected below after run
-
-
             job_log(job_id, msg)
             job_update(job_id, current_agent=agent_name)
             state = agent_fn(state)
@@ -242,10 +237,21 @@ def _run_job(job_id: str, topic: str, language: str, style: str, audience: str,
                     state = _apply_custom_images(state, custom["image_paths"])
                     skip.add("visual")
 
-            # Sync logs from agent state
-            new_logs = state.get("logs", [])
-            if new_logs:
-                job_update(job_id, logs=new_logs)
+            # Sync logs + key output paths from agent state to disk
+            sync: dict = {"logs": state.get("logs", [])}
+            if agent_name == "voice":
+                sync["total_duration"] = state.get("total_duration", 0)
+            if agent_name == "editor":
+                vp = state.get("video_path", "")
+                sync["video_path"]  = vp
+                sync["video_ready"] = bool(vp and Path(vp).exists())
+            if agent_name == "thumbnail":
+                tp = state.get("thumbnail_path", "")
+                sync["thumbnail_path"]  = tp
+                sync["thumbnail_ready"] = bool(tp and Path(tp).exists())
+            if agent_name == "metadata":
+                sync["metadata"] = state.get("metadata", {})
+            job_update(job_id, **sync)
 
             # Check for failure
             if state.get("status") == "failed":
@@ -253,13 +259,19 @@ def _run_job(job_id: str, topic: str, language: str, style: str, audience: str,
                            errors=state.get("errors", []))
                 return
 
-            # HITL pause
+            # HITL pause — persist everything needed to survive a restart
             if state.get("status") == "waiting_approval":
+                vp = state.get("video_path", "")
+                tp = state.get("thumbnail_path", "")
                 job_update(job_id,
                            status="waiting_approval",
                            qa_report=state.get("qa_report", {}),
                            metadata=state.get("metadata", {}),
                            total_duration=state.get("total_duration", 0),
+                           video_path=vp,
+                           thumbnail_path=tp,
+                           video_ready=bool(vp and Path(vp).exists()),
+                           thumbnail_ready=bool(tp and Path(tp).exists()),
                            _state=state)
                 return
 
@@ -390,19 +402,43 @@ async def approve(job_id: str, req: ApproveRequest, bg: BackgroundTasks):
     def _finalize():
         try:
             from agents.finalizer import finalizer_agent
-            state = job.get("_state") or job
+            # Prefer full in-memory state; fall back to reconstructing from disk data
+            state = job.get("_state")
+            if not state:
+                state = {
+                    "job_id":         job_id,
+                    "topic":          job.get("topic", ""),
+                    "language":       job.get("language", "English"),
+                    "style":          job.get("style", "Educational"),
+                    "audience":       job.get("audience", "general"),
+                    "research":       job.get("research", {}),
+                    "script":         job.get("script", {}),
+                    "audio_files":    job.get("audio_files", []),
+                    "total_duration": job.get("total_duration", 0),
+                    "image_files":    job.get("image_files", []),
+                    "scenes":         job.get("scenes", []),
+                    "video_path":     job.get("video_path", ""),
+                    "thumbnail_path": job.get("thumbnail_path", ""),
+                    "metadata":       job.get("metadata", {}),
+                    "qa_report":      job.get("qa_report", {}),
+                    "errors":         job.get("errors", []),
+                    "logs":           job.get("logs", []),
+                    "status":         "running",
+                    "current_agent":  "finalizer",
+                    "human_approved": True,
+                }
             state["human_approved"] = True
             state["status"] = "running"
             final = finalizer_agent(state)
-            vp = final.get("video_path", "")
-            tp = final.get("thumbnail_path", "")
+            vp = final.get("video_path", "") or job.get("video_path", "")
+            tp = final.get("thumbnail_path", "") or job.get("thumbnail_path", "")
             job_update(job_id, status="done",
                        video_path=vp, thumbnail_path=tp,
                        video_ready=bool(vp and Path(vp).exists()),
                        thumbnail_ready=bool(tp and Path(tp).exists()),
                        logs=final.get("logs", []))
         except Exception as e:
-            job_update(job_id, status="failed", errors=[str(e)])
+            job_update(job_id, status="failed", errors=[str(e), traceback.format_exc()[-500:]])
 
     job_update(job_id, status="finalizing")
     bg.add_task(_finalize)

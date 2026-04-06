@@ -10,19 +10,25 @@ def finalizer_agent(state: VideoState) -> VideoState:
     logs   = state.get("logs", [])
     logs.append("[Finalizer] Packaging outputs...")
 
-    # Output directory for this job
-    job_dir = OUTPUTS_DIR / "videos" / job_id
-    job_dir.mkdir(parents=True, exist_ok=True)
+    # Ensure output directories exist
+    for sub in ("videos", "scripts", "metadata"):
+        (OUTPUTS_DIR / sub).mkdir(parents=True, exist_ok=True)
 
     # Save script
     script_path = OUTPUTS_DIR / "scripts" / f"{job_id}.json"
-    script_path.write_text(json.dumps(state.get("script", {}),
-                                      indent=2, ensure_ascii=False))
+    try:
+        script_path.write_text(json.dumps(state.get("script", {}),
+                                          indent=2, ensure_ascii=False))
+    except Exception as e:
+        logs.append(f"[Finalizer] Warning: could not save script: {e}")
 
     # Save metadata
     meta_path = OUTPUTS_DIR / "metadata" / f"{job_id}.json"
-    meta_path.write_text(json.dumps(state.get("metadata", {}),
-                                    indent=2, ensure_ascii=False))
+    try:
+        meta_path.write_text(json.dumps(state.get("metadata", {}),
+                                        indent=2, ensure_ascii=False))
+    except Exception as e:
+        logs.append(f"[Finalizer] Warning: could not save metadata: {e}")
 
     # Save final summary
     summary = {

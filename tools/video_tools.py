@@ -322,7 +322,7 @@ def apply_zoom(base_arr: np.ndarray, progress: float,
     scale = 1.0 + zoom_amount * (progress if zoom_in else (1 - progress))
     sh, sw = base_arr.shape[:2]
     img    = Image.fromarray(base_arr).resize(
-        (int(sw*scale), int(sh*scale)), Image.LANCZOS)
+        (int(sw*scale), int(sh*scale)), Image.BILINEAR)  # BILINEAR: 5× faster than LANCZOS
     nh, nw = int(sh*scale), int(sw*scale)
     y0 = (nh - sh) // 2
     x0 = (nw - sw) // 2
@@ -345,7 +345,7 @@ def render_scene_frames(
     zoom_in: bool = True, anim_data: dict = None,
 ):
     """Yields frames one by one — never accumulates the full scene in memory."""
-    base = Image.open(image_path).convert("RGB").resize((W, H), Image.LANCZOS)
+    base = Image.open(image_path).convert("RGB").resize((W, H), Image.BILINEAR)
     base_arr  = np.array(base)
     n_frames  = max(1, int(duration * FPS))
     anim_data = anim_data or {"type": "none"}
@@ -398,39 +398,152 @@ def render_scene_frames(
         yield np.array(pimg)
 
 
-# ── Assemble final video ──────────────────────────────────────────────────────
-def assemble_video(scenes: list, out_path: str, accent_colors: list) -> str:
-    silent_path  = out_path.replace(".mp4", "_silent.mp4")
-    total_frames = sum(max(1, int(s["duration"] * FPS)) for s in scenes)
+# ── Subtitle PNG (for ffmpeg fast path) ──────────────────────────────────────
+def _render_subtitle_png(text: str, accent_color: tuple, out_path: str):
+    """Render subtitle as transparent RGBA PNG for ffmpeg overlay."""
+    text = _clean(text)
+    img  = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    if not text.strip():
+        img.save(out_path, "PNG")
+        return
+    draw  = ImageDraw.Draw(img)
+    f     = _font(12)
+    lines = textwrap.wrap(text, 48)[:2]
+    if not lines:
+        img.save(out_path, "PNG")
+        return
+    LH, PAD = 28, 7
+    bh  = len(lines) * LH + PAD * 2
+    y1  = H - bh - 10
+    acc = tuple(int(c) for c in accent_color)
+    draw.rounded_rectangle([6, y1, W-6, H-10], radius=6, fill=(0, 0, 12, 220))
+    draw.rounded_rectangle([6, y1, 10, H-10],  radius=4, fill=acc + (255,))
+    for i, line in enumerate(lines):
+        ty = y1 + PAD + i * LH
+        draw.text((16, ty+2), line, font=f, fill=(0, 0, 0, 200))
+        draw.text((15, ty),   line, font=f, fill=(238, 243, 255, 255))
+    img.save(out_path, "PNG")
 
-    print(f"[Editor] {len(scenes)} scenes, {total_frames} frames @ {FPS}fps")
 
-    writer = imageio.get_writer(
-        silent_path, fps=FPS, quality=8,
-        macro_block_size=None,
-        ffmpeg_params=["-pix_fmt", "yuv420p"],
+# ── Fast scene clip via pure ffmpeg (no Python frame loop) ────────────────────
+def _render_scene_ffmpeg(scene: dict, clip_path: str, accent_color: tuple,
+                         frame_n_start: int, total_frames: int,
+                         zoom_in: bool, ffmpeg_exe: str):
+    """Generate scene clip with ffmpeg zoompan — skips Python frame loop entirely."""
+    dur      = scene["duration"]
+    n_frames = max(1, int(dur * FPS))
+    fade_f   = max(1, int(FPS * 0.3))
+
+    sub_png = clip_path + "_sub.png"
+    _render_subtitle_png(scene.get("subtitle", ""), accent_color, sub_png)
+
+    z_expr = (f"1+0.04*on/{n_frames}" if zoom_in
+              else f"1.04-0.04*on/{n_frames}")
+
+    filt = (
+        f"[0:v]scale={W}:{H}:flags=bilinear,"
+        f"zoompan=z='{z_expr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+        f"d={n_frames}:s={W}x{H}:fps={FPS},"
+        f"fade=t=in:st=0:d={fade_f/FPS:.3f},"
+        f"fade=t=out:st={max(0, dur - fade_f/FPS):.3f}:d={fade_f/FPS:.3f}[base];"
+        f"[1:v]format=rgba[sub];"
+        f"[base][sub]overlay=0:0,format=yuv420p[out]"
     )
 
-    frame_cursor = 0
-    for idx, scene in enumerate(scenes):
-        acc = tuple(int(c) for c in accent_colors[idx % len(accent_colors)])
-        scene_frames = 0
-        for f in render_scene_frames(
+    result = subprocess.run([
+        ffmpeg_exe, '-y',
+        '-loop', '1', '-framerate', str(FPS), '-i', scene["image_path"],
+        '-loop', '1',                          '-i', sub_png,
+        '-filter_complex', filt,
+        '-map', '[out]',
+        '-t', str(dur), '-r', str(FPS),
+        '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p',
+        clip_path,
+    ], capture_output=True)
+
+    try: os.remove(sub_png)
+    except: pass
+
+    # Fall back to Python renderer if ffmpeg failed
+    if result.returncode != 0 or not os.path.exists(clip_path):
+        _render_scene_python_pipe(scene, clip_path, accent_color,
+                                  frame_n_start, total_frames, zoom_in, ffmpeg_exe)
+
+
+# ── Animated scene clip via Python → ffmpeg pipe ──────────────────────────────
+def _render_scene_python_pipe(scene: dict, clip_path: str, accent_color: tuple,
+                               frame_n_start: int, total_frames: int,
+                               zoom_in: bool, ffmpeg_exe: str):
+    """Python animated renderer piped directly to ffmpeg — no imageio overhead."""
+    proc = subprocess.Popen(
+        [ffmpeg_exe, '-y',
+         '-f', 'rawvideo', '-vcodec', 'rawvideo',
+         '-s', f'{W}x{H}', '-pix_fmt', 'rgb24', '-r', str(FPS), '-i', '-',
+         '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p',
+         clip_path],
+        stdin=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        for frame in render_scene_frames(
             image_path    = scene["image_path"],
             subtitle_text = scene.get("subtitle", ""),
             duration      = scene["duration"],
-            accent_color  = acc,
-            frame_n_start = frame_cursor,
+            accent_color  = accent_color,
+            frame_n_start = frame_n_start,
             total_frames  = total_frames,
-            zoom_in       = (idx % 2 == 0),
+            zoom_in       = zoom_in,
             anim_data     = scene.get("anim_data", {"type": "none"}),
         ):
-            writer.append_data(f)
-            scene_frames += 1
-        frame_cursor += scene_frames
-        print(f"[Editor] Scene {idx+1}/{len(scenes)} — {int((idx+1)/len(scenes)*100)}%")
+            proc.stdin.write(frame.tobytes())
+    finally:
+        proc.stdin.close()
+        proc.wait()
 
-    writer.close()
+
+# ── Assemble final video ──────────────────────────────────────────────────────
+def assemble_video(scenes: list, out_path: str, accent_colors: list) -> str:
+    import imageio_ffmpeg as _iiff
+    ffmpeg_exe   = _iiff.get_ffmpeg_exe()
+    total_frames = sum(max(1, int(s["duration"] * FPS)) for s in scenes)
+    print(f"[Editor] {len(scenes)} scenes, {total_frames} frames @ {FPS}fps")
+
+    clip_files   = []
+    frame_cursor = 0
+
+    for idx, scene in enumerate(scenes):
+        acc       = tuple(int(c) for c in accent_colors[idx % len(accent_colors)])
+        n_frames  = max(1, int(scene["duration"] * FPS))
+        clip_path = out_path + f"_clip{idx:02d}.mp4"
+        anim_type = (scene.get("anim_data") or {}).get("type", "none")
+
+        if anim_type == "none":
+            # Fast path: no Python frame loop — ffmpeg handles zoom/fade/subtitle
+            _render_scene_ffmpeg(scene, clip_path, acc, frame_cursor,
+                                 total_frames, idx % 2 == 0, ffmpeg_exe)
+        else:
+            # Animated path: Python renderer → ffmpeg pipe
+            _render_scene_python_pipe(scene, clip_path, acc, frame_cursor,
+                                      total_frames, idx % 2 == 0, ffmpeg_exe)
+
+        clip_files.append(clip_path)
+        frame_cursor += n_frames
+        print(f"[Editor] Scene {idx+1}/{len(scenes)} done")
+
+    # Concatenate scene clips
+    silent_path  = out_path.replace(".mp4", "_silent.mp4")
+    concat_list  = out_path + "_concat.txt"
+    with open(concat_list, "w") as f:
+        for cp in clip_files:
+            f.write(f"file '{cp}'\n")
+    subprocess.run([ffmpeg_exe, '-y', '-f', 'concat', '-safe', '0',
+                    '-i', concat_list, '-c', 'copy', silent_path],
+                   capture_output=True)
+    for cp in clip_files:
+        try: os.remove(cp)
+        except: pass
+    try: os.remove(concat_list)
+    except: pass
 
     # Merge audio
     audio_files = [s["audio_path"] for s in scenes

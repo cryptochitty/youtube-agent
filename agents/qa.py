@@ -59,14 +59,25 @@ def qa_agent(state: VideoState) -> VideoState:
         score -= 5
 
     # ── LLM content review ────────────────────────────────────────────────
-    full_script = script.get("full_script", "")[:200]
-    if full_script:
+    # Use hook + first section for a representative, self-contained excerpt
+    hook_text   = script.get("hook", "")[:300]
+    first_sec   = sections[0].get("content", "")[:300] if sections else ""
+    review_text = f"Hook: {hook_text}\nFirst section: {first_sec}".strip()
+    language    = state.get("language", "English")
+    if review_text:
         try:
             llm_review = invoke_json(
-                f'Rate this script excerpt (topic: "{topic[:60]}"):\n{full_script}\n'
-                'JSON: {"engagement_score":0-10,"clarity_score":0-10,'
-                '"issues":[],"suggestions":[]}',
-                max_tokens=200,
+                f'You are a YouTube content quality reviewer.\n'
+                f'Topic: "{topic[:60]}"\n'
+                f'Intended language: {language} — the script is CORRECTLY written in {language}, '
+                f'this is intentional and must NOT be flagged as an issue.\n\n'
+                f'Script sample:\n{review_text}\n\n'
+                f'Rate only content quality. Return JSON: '
+                f'{{"engagement_score": 0, "clarity_score": 0, "issues": [], "suggestions": []}} '
+                f'Scores are integers 0-10. Only flag: factual errors, unclear arguments, '
+                f'or very poor phrasing in {language}. '
+                f'Do NOT flag: script length, language choice, use of {language}, excerpt being short.',
+                max_tokens=300,
             )
         except Exception as e:
             logs.append(f"[QA] LLM review skipped: {e}")
@@ -74,8 +85,21 @@ def qa_agent(state: VideoState) -> VideoState:
         if llm_review:
             eng = llm_review.get("engagement_score", 7)
             clr = llm_review.get("clarity_score", 7)
-            score = min(score, int((eng + clr) / 20 * 100))
-            issues.extend(llm_review.get("issues", []))
+            # Blend: 60% structural checks, 40% LLM content review
+            llm_score = int((eng + clr) / 20 * 100)
+            score = int(score * 0.6 + llm_score * 0.4)
+            # Filter out false-positive language complaints
+            lang_lower = language.lower()
+            raw_issues = llm_review.get("issues", [])
+            filtered = [
+                iss for iss in raw_issues
+                if not any(kw in iss.lower() for kw in (
+                    "non-english", "not english", "not in english",
+                    lang_lower, "language choice", "translation",
+                    "excerpt", "too short", "too long",
+                ))
+            ]
+            issues.extend(filtered)
             logs.append(f"[QA] LLM scores — Engagement: {eng}/10, Clarity: {clr}/10")
 
     score = max(0, min(100, score))

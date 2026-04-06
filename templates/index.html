@@ -423,7 +423,7 @@ function updateUI(d){
   markSteps(activeStep, status==='done');
 
   // Progress bar (estimated)
-  const stepIdx = STEPS.indexOf(lastFound);
+  const stepIdx = STEPS.indexOf(activeStep);
   const pct = status === 'done' ? 100 : Math.min(95, ((stepIdx+1)/STEPS.length)*100);
   document.getElementById('prog-bar').style.width = pct + '%';
   document.getElementById('status-msg').textContent = logs[logs.length-1] || '';
