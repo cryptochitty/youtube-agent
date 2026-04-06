@@ -93,7 +93,7 @@ def qa_agent(state: VideoState) -> VideoState:
             raw_issues = llm_review.get("issues", [])
             filtered = [
                 iss for iss in raw_issues
-                if not any(kw in iss.lower() for kw in (
+                if isinstance(iss, str) and not any(kw in iss.lower() for kw in (
                     "non-english", "not english", "not in english",
                     lang_lower, "language choice", "translation",
                     "excerpt", "too short", "too long",
